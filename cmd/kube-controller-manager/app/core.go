@@ -187,6 +187,7 @@ func startAttachDetachController(ctx ControllerContext) (bool, error) {
 			ctx.Options.DisableAttachDetachReconcilerSync,
 			ctx.Options.ReconcilerSyncLoopPeriod.Duration,
 			attachdetach.DefaultTimerConfig,
+			ctx.DesiredStateOfWorld,
 		)
 	if attachDetachControllerErr != nil {
 		return true, fmt.Errorf("failed to start attach/detach controller: %v", attachDetachControllerErr)

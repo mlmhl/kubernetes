@@ -27,8 +27,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/informers"
 	"k8s.io/kubernetes/pkg/controller"
-	"k8s.io/kubernetes/pkg/controller/volume/cache"
 	controllervolumetesting "k8s.io/kubernetes/pkg/controller/volume/attachdetach/testing"
+	"k8s.io/kubernetes/pkg/controller/volume/cache"
 	"k8s.io/kubernetes/pkg/volume"
 )
 
@@ -49,7 +49,8 @@ func Test_NewAttachDetachController_Positive(t *testing.T) {
 		nil, /* prober */
 		false,
 		5*time.Second,
-		DefaultTimerConfig)
+		DefaultTimerConfig,
+		cache.NewDesiredStateOfWorld())
 
 	// Assert
 	if err != nil {
@@ -87,8 +88,8 @@ func Test_AttachDetachControllerStateOfWolrdPopulators_Positive(t *testing.T) {
 		t.Fatalf("Could not initialize volume plugins for Attach/Detach Controller: %+v", err)
 	}
 
-	adc.actualStateOfWorld = cache.NewActualStateOfWorld(&adc.volumePluginMgr)
-	adc.desiredStateOfWorld = cache.NewDesiredStateOfWorld(&adc.volumePluginMgr)
+	adc.actualStateOfWorld = cache.NewActualStateOfWorld()
+	adc.desiredStateOfWorld = cache.NewDesiredStateOfWorld()
 
 	err := adc.populateActualStateOfWorld()
 	if err != nil {
@@ -223,7 +224,8 @@ func attachDetachRecoveryTestCase(t *testing.T, extraPods1 []*v1.Pod, extraPods2
 		prober,
 		false,
 		1*time.Second,
-		DefaultTimerConfig)
+		DefaultTimerConfig,
+		cache.NewDesiredStateOfWorld())
 
 	if err != nil {
 		t.Fatalf("Run failed with error. Expected: <no error> Actual: <%v>", err)

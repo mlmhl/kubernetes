@@ -310,8 +310,14 @@ func (og *operationGenerator) GenerateAttachVolumeFunc(
 
 		if attachErr != nil {
 			if derr, ok := attachErr.(*util.DanglingAttachError); ok {
+				volumeName, getVolumeNameErr := volumehelper.GetVolumeNameFromPluginMgr(
+					v1.UniqueVolumeName(""), volumeToAttach.VolumeSpec, og.volumePluginMgr)
+				if getVolumeNameErr != nil {
+					return volumeToAttach.GenerateError("AttachVolume.GetVolumeNameFromPluginMgr failed", getVolumeNameErr)
+				}
+
 				addErr := actualStateOfWorld.MarkVolumeAsAttached(
-					v1.UniqueVolumeName(""),
+					volumeName,
 					volumeToAttach.VolumeSpec,
 					derr.CurrentNode,
 					derr.DevicePath)
@@ -333,8 +339,13 @@ func (og *operationGenerator) GenerateAttachVolumeFunc(
 		glog.Infof(volumeToAttach.GenerateMsgDetailed("AttachVolume.Attach succeeded", ""))
 
 		// Update actual state of world
+		volumeName, getVolumeNameErr := volumehelper.GetVolumeNameFromPluginMgr(
+			v1.UniqueVolumeName(""), volumeToAttach.VolumeSpec, og.volumePluginMgr)
+		if getVolumeNameErr != nil {
+			return volumeToAttach.GenerateError("AttachVolume.GetVolumeNameFromPluginMgr failed", getVolumeNameErr)
+		}
 		addVolumeNodeErr := actualStateOfWorld.MarkVolumeAsAttached(
-			v1.UniqueVolumeName(""), volumeToAttach.VolumeSpec, volumeToAttach.NodeName, devicePath)
+			volumeName, volumeToAttach.VolumeSpec, volumeToAttach.NodeName, devicePath)
 		if addVolumeNodeErr != nil {
 			// On failure, return error. Caller will log and retry.
 			return volumeToAttach.GenerateError("AttachVolume.MarkVolumeAsAttached failed", addVolumeNodeErr)

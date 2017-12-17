@@ -56,6 +56,7 @@ import (
 	"k8s.io/kubernetes/pkg/cloudprovider"
 	"k8s.io/kubernetes/pkg/controller"
 	serviceaccountcontroller "k8s.io/kubernetes/pkg/controller/serviceaccount"
+	"k8s.io/kubernetes/pkg/controller/volume/cache"
 	"k8s.io/kubernetes/pkg/serviceaccount"
 	"k8s.io/kubernetes/pkg/util/configz"
 	"k8s.io/kubernetes/pkg/version"
@@ -280,6 +281,9 @@ type ControllerContext struct {
 	// InformersStarted is closed after all of the controllers have been initialized and are running.  After this point it is safe,
 	// for an individual controller to start the shared informers. Before it is closed, they should not.
 	InformersStarted chan struct{}
+
+	// DesiredStateOfWorld is the desired state of volumes used by AttachDetachController and ExpandController.
+	DesiredStateOfWorld cache.DesiredStateOfWorld
 }
 
 func (c ControllerContext) IsControllerEnabled(name string) bool {
@@ -473,14 +477,15 @@ func CreateControllerContext(s *options.CMServer, rootClientBuilder, clientBuild
 	}
 
 	ctx := ControllerContext{
-		ClientBuilder:      clientBuilder,
-		InformerFactory:    sharedInformers,
-		Options:            *s,
-		AvailableResources: availableResources,
-		Cloud:              cloud,
-		LoopMode:           loopMode,
-		Stop:               stop,
-		InformersStarted:   make(chan struct{}),
+		ClientBuilder:       clientBuilder,
+		InformerFactory:     sharedInformers,
+		Options:             *s,
+		AvailableResources:  availableResources,
+		Cloud:               cloud,
+		LoopMode:            loopMode,
+		Stop:                stop,
+		InformersStarted:    make(chan struct{}),
+		DesiredStateOfWorld: cache.NewDesiredStateOfWorld(),
 	}
 	return ctx, nil
 }

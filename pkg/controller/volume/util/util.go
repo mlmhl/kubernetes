@@ -216,11 +216,23 @@ func ProcessPodVolumes(pod *v1.Pod, addVolumes bool, desiredStateOfWorld cache.D
 			continue
 		}
 
+		uniqueVolumeName, err := volumehelper.GetUniqueVolumeNameFromSpec(
+			attachableVolumePlugin, volumeSpec)
+		if err != nil {
+			glog.V(10).Infof(
+				"Skipping volume %q for pod %q/%q: GetUniqueVolumeNameFromSpec failed with %v",
+				podVolume.Name,
+				pod.Namespace,
+				pod.Name,
+				err)
+			continue
+		}
+
 		uniquePodName := volumehelper.GetUniquePodName(pod)
 		if addVolumes {
 			// Add volume to desired state of world
 			_, err := desiredStateOfWorld.AddPod(
-				uniquePodName, pod, volumeSpec, nodeName)
+				uniquePodName, pod, volumeSpec, nodeName, uniqueVolumeName)
 			if err != nil {
 				glog.V(10).Infof(
 					"Failed to add volume %q for pod %q/%q to desiredStateOfWorld. %v",
@@ -232,17 +244,6 @@ func ProcessPodVolumes(pod *v1.Pod, addVolumes bool, desiredStateOfWorld cache.D
 
 		} else {
 			// Remove volume from desired state of world
-			uniqueVolumeName, err := volumehelper.GetUniqueVolumeNameFromSpec(
-				attachableVolumePlugin, volumeSpec)
-			if err != nil {
-				glog.V(10).Infof(
-					"Failed to delete volume %q for pod %q/%q from desiredStateOfWorld. GetUniqueVolumeNameFromSpec failed with %v",
-					podVolume.Name,
-					pod.Namespace,
-					pod.Name,
-					err)
-				continue
-			}
 			desiredStateOfWorld.DeletePod(
 				uniquePodName, uniqueVolumeName, nodeName)
 		}

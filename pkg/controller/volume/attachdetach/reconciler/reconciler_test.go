@@ -26,12 +26,13 @@ import (
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/kubernetes/pkg/controller"
-	"k8s.io/kubernetes/pkg/controller/volume/cache"
 	"k8s.io/kubernetes/pkg/controller/volume/attachdetach/statusupdater"
 	controllervolumetesting "k8s.io/kubernetes/pkg/controller/volume/attachdetach/testing"
+	"k8s.io/kubernetes/pkg/controller/volume/cache"
 	volumetesting "k8s.io/kubernetes/pkg/volume/testing"
 	"k8s.io/kubernetes/pkg/volume/util/operationexecutor"
 	"k8s.io/kubernetes/pkg/volume/util/types"
+	"k8s.io/kubernetes/pkg/volume/util/volumehelper"
 )
 
 const (
@@ -46,8 +47,8 @@ const (
 func Test_Run_Positive_DoNothing(t *testing.T) {
 	// Arrange
 	volumePluginMgr, fakePlugin := volumetesting.GetTestVolumePluginMgr(t)
-	dsw := cache.NewDesiredStateOfWorld(volumePluginMgr)
-	asw := cache.NewActualStateOfWorld(volumePluginMgr)
+	dsw := cache.NewDesiredStateOfWorld()
+	asw := cache.NewActualStateOfWorld()
 	fakeKubeClient := controllervolumetesting.CreateTestClient()
 	fakeRecorder := &record.FakeRecorder{}
 	fakeHandler := volumetesting.NewBlockVolumePathHandler()
@@ -82,8 +83,8 @@ func Test_Run_Positive_DoNothing(t *testing.T) {
 func Test_Run_Positive_OneDesiredVolumeAttach(t *testing.T) {
 	// Arrange
 	volumePluginMgr, fakePlugin := volumetesting.GetTestVolumePluginMgr(t)
-	dsw := cache.NewDesiredStateOfWorld(volumePluginMgr)
-	asw := cache.NewActualStateOfWorld(volumePluginMgr)
+	dsw := cache.NewDesiredStateOfWorld()
+	asw := cache.NewActualStateOfWorld()
 	fakeKubeClient := controllervolumetesting.CreateTestClient()
 	fakeRecorder := &record.FakeRecorder{}
 	fakeHandler := volumetesting.NewBlockVolumePathHandler()
@@ -109,7 +110,12 @@ func Test_Run_Positive_OneDesiredVolumeAttach(t *testing.T) {
 			nodeName)
 	}
 
-	_, podErr := dsw.AddPod(types.UniquePodName(podName), controllervolumetesting.NewPod(podName, podName), volumeSpec, nodeName)
+	volumeNameFromSpec, getVolumeNameErr := volumehelper.GetUniqueVolumeNameFromSpec(fakePlugin, volumeSpec)
+	if getVolumeNameErr != nil {
+		t.Fatalf("GetUniqueVolumeNameFromSpec. Expected: <no error> Actual: <%v>", getVolumeNameErr)
+	}
+
+	_, podErr := dsw.AddPod(types.UniquePodName(podName), controllervolumetesting.NewPod(podName, podName), volumeSpec, nodeName, volumeNameFromSpec)
 	if podErr != nil {
 		t.Fatalf("AddPod failed. Expected: <no error> Actual: <%v>", podErr)
 	}
@@ -134,8 +140,8 @@ func Test_Run_Positive_OneDesiredVolumeAttach(t *testing.T) {
 func Test_Run_Positive_OneDesiredVolumeAttachThenDetachWithUnmountedVolume(t *testing.T) {
 	// Arrange
 	volumePluginMgr, fakePlugin := volumetesting.GetTestVolumePluginMgr(t)
-	dsw := cache.NewDesiredStateOfWorld(volumePluginMgr)
-	asw := cache.NewActualStateOfWorld(volumePluginMgr)
+	dsw := cache.NewDesiredStateOfWorld()
+	asw := cache.NewActualStateOfWorld()
 	fakeKubeClient := controllervolumetesting.CreateTestClient()
 	fakeRecorder := &record.FakeRecorder{}
 	fakeHandler := volumetesting.NewBlockVolumePathHandler()
@@ -161,7 +167,12 @@ func Test_Run_Positive_OneDesiredVolumeAttachThenDetachWithUnmountedVolume(t *te
 			nodeName)
 	}
 
-	generatedVolumeName, podAddErr := dsw.AddPod(types.UniquePodName(podName), controllervolumetesting.NewPod(podName, podName), volumeSpec, nodeName)
+	volumeNameFromSpec, getVolumeNameErr := volumehelper.GetUniqueVolumeNameFromSpec(fakePlugin, volumeSpec)
+	if getVolumeNameErr != nil {
+		t.Fatalf("GetUniqueVolumeNameFromSpec. Expected: <no error> Actual: <%v>", getVolumeNameErr)
+	}
+
+	generatedVolumeName, podAddErr := dsw.AddPod(types.UniquePodName(podName), controllervolumetesting.NewPod(podName, podName), volumeSpec, nodeName, volumeNameFromSpec)
 	if podAddErr != nil {
 		t.Fatalf("AddPod failed. Expected: <no error> Actual: <%v>", podAddErr)
 	}
@@ -207,8 +218,8 @@ func Test_Run_Positive_OneDesiredVolumeAttachThenDetachWithUnmountedVolume(t *te
 func Test_Run_Positive_OneDesiredVolumeAttachThenDetachWithMountedVolume(t *testing.T) {
 	// Arrange
 	volumePluginMgr, fakePlugin := volumetesting.GetTestVolumePluginMgr(t)
-	dsw := cache.NewDesiredStateOfWorld(volumePluginMgr)
-	asw := cache.NewActualStateOfWorld(volumePluginMgr)
+	dsw := cache.NewDesiredStateOfWorld()
+	asw := cache.NewActualStateOfWorld()
 	fakeKubeClient := controllervolumetesting.CreateTestClient()
 	fakeRecorder := &record.FakeRecorder{}
 	fakeHandler := volumetesting.NewBlockVolumePathHandler()
@@ -234,7 +245,12 @@ func Test_Run_Positive_OneDesiredVolumeAttachThenDetachWithMountedVolume(t *test
 			nodeName)
 	}
 
-	generatedVolumeName, podAddErr := dsw.AddPod(types.UniquePodName(podName), controllervolumetesting.NewPod(podName, podName), volumeSpec, nodeName)
+	volumeNameFromSpec, getVolumeNameErr := volumehelper.GetUniqueVolumeNameFromSpec(fakePlugin, volumeSpec)
+	if getVolumeNameErr != nil {
+		t.Fatalf("GetUniqueVolumeNameFromSpec. Expected: <no error> Actual: <%v>", getVolumeNameErr)
+	}
+
+	generatedVolumeName, podAddErr := dsw.AddPod(types.UniquePodName(podName), controllervolumetesting.NewPod(podName, podName), volumeSpec, nodeName, volumeNameFromSpec)
 	if podAddErr != nil {
 		t.Fatalf("AddPod failed. Expected: <no error> Actual: <%v>", podAddErr)
 	}
@@ -280,8 +296,8 @@ func Test_Run_Positive_OneDesiredVolumeAttachThenDetachWithMountedVolume(t *test
 func Test_Run_Negative_OneDesiredVolumeAttachThenDetachWithUnmountedVolumeUpdateStatusFail(t *testing.T) {
 	// Arrange
 	volumePluginMgr, fakePlugin := volumetesting.GetTestVolumePluginMgr(t)
-	dsw := cache.NewDesiredStateOfWorld(volumePluginMgr)
-	asw := cache.NewActualStateOfWorld(volumePluginMgr)
+	dsw := cache.NewDesiredStateOfWorld()
+	asw := cache.NewActualStateOfWorld()
 	fakeKubeClient := controllervolumetesting.CreateTestClient()
 	fakeRecorder := &record.FakeRecorder{}
 	fakeHandler := volumetesting.NewBlockVolumePathHandler()
@@ -307,7 +323,12 @@ func Test_Run_Negative_OneDesiredVolumeAttachThenDetachWithUnmountedVolumeUpdate
 			nodeName)
 	}
 
-	generatedVolumeName, podAddErr := dsw.AddPod(types.UniquePodName(podName), controllervolumetesting.NewPod(podName, podName), volumeSpec, nodeName)
+	volumeNameFromSpec, getVolumeNameErr := volumehelper.GetUniqueVolumeNameFromSpec(fakePlugin, volumeSpec)
+	if getVolumeNameErr != nil {
+		t.Fatalf("GetUniqueVolumeNameFromSpec. Expected: <no error> Actual: <%v>", getVolumeNameErr)
+	}
+
+	generatedVolumeName, podAddErr := dsw.AddPod(types.UniquePodName(podName), controllervolumetesting.NewPod(podName, podName), volumeSpec, nodeName, volumeNameFromSpec)
 	if podAddErr != nil {
 		t.Fatalf("AddPod failed. Expected: <no error> Actual: <%v>", podAddErr)
 	}
@@ -356,8 +377,8 @@ func Test_Run_Negative_OneDesiredVolumeAttachThenDetachWithUnmountedVolumeUpdate
 func Test_Run_OneVolumeAttachAndDetachMultipleNodesWithReadWriteMany(t *testing.T) {
 	// Arrange
 	volumePluginMgr, fakePlugin := volumetesting.GetTestVolumePluginMgr(t)
-	dsw := cache.NewDesiredStateOfWorld(volumePluginMgr)
-	asw := cache.NewActualStateOfWorld(volumePluginMgr)
+	dsw := cache.NewDesiredStateOfWorld()
+	asw := cache.NewActualStateOfWorld()
 	fakeKubeClient := controllervolumetesting.CreateTestClient()
 	fakeRecorder := &record.FakeRecorder{}
 	fakeHandler := volumetesting.NewBlockVolumePathHandler()
@@ -380,11 +401,16 @@ func Test_Run_OneVolumeAttachAndDetachMultipleNodesWithReadWriteMany(t *testing.
 	dsw.AddNode(nodeName1, false /*keepTerminatedPodVolumes*/)
 	dsw.AddNode(nodeName2, false /*keepTerminatedPodVolumes*/)
 
-	generatedVolumeName, podAddErr := dsw.AddPod(types.UniquePodName(podName1), controllervolumetesting.NewPod(podName1, podName1), volumeSpec, nodeName1)
+	volumeNameFromSpec, getVolumeNameErr := volumehelper.GetUniqueVolumeNameFromSpec(fakePlugin, volumeSpec)
+	if getVolumeNameErr != nil {
+		t.Fatalf("GetUniqueVolumeNameFromSpec. Expected: <no error> Actual: <%v>", getVolumeNameErr)
+	}
+
+	generatedVolumeName, podAddErr := dsw.AddPod(types.UniquePodName(podName1), controllervolumetesting.NewPod(podName1, podName1), volumeSpec, nodeName1, volumeNameFromSpec)
 	if podAddErr != nil {
 		t.Fatalf("AddPod failed. Expected: <no error> Actual: <%v>", podAddErr)
 	}
-	_, podAddErr = dsw.AddPod(types.UniquePodName(podName2), controllervolumetesting.NewPod(podName2, podName2), volumeSpec, nodeName2)
+	_, podAddErr = dsw.AddPod(types.UniquePodName(podName2), controllervolumetesting.NewPod(podName2, podName2), volumeSpec, nodeName2, volumeNameFromSpec)
 	if podAddErr != nil {
 		t.Fatalf("AddPod failed. Expected: <no error> Actual: <%v>", podAddErr)
 	}
@@ -448,8 +474,8 @@ func Test_Run_OneVolumeAttachAndDetachMultipleNodesWithReadWriteMany(t *testing.
 func Test_Run_OneVolumeAttachAndDetachMultipleNodesWithReadWriteOnce(t *testing.T) {
 	// Arrange
 	volumePluginMgr, fakePlugin := volumetesting.GetTestVolumePluginMgr(t)
-	dsw := cache.NewDesiredStateOfWorld(volumePluginMgr)
-	asw := cache.NewActualStateOfWorld(volumePluginMgr)
+	dsw := cache.NewDesiredStateOfWorld()
+	asw := cache.NewActualStateOfWorld()
 	fakeKubeClient := controllervolumetesting.CreateTestClient()
 	fakeRecorder := &record.FakeRecorder{}
 	fakeHandler := volumetesting.NewBlockVolumePathHandler()
@@ -472,12 +498,17 @@ func Test_Run_OneVolumeAttachAndDetachMultipleNodesWithReadWriteOnce(t *testing.
 	dsw.AddNode(nodeName1, false /*keepTerminatedPodVolumes*/)
 	dsw.AddNode(nodeName2, false /*keepTerminatedPodVolumes*/)
 
+	volumeNameFromSpec, getVolumeNameErr := volumehelper.GetUniqueVolumeNameFromSpec(fakePlugin, volumeSpec)
+	if getVolumeNameErr != nil {
+		t.Fatalf("GetUniqueVolumeNameFromSpec. Expected: <no error> Actual: <%v>", getVolumeNameErr)
+	}
+
 	// Add both pods at the same time to provoke a potential race condition in the reconciler
-	generatedVolumeName, podAddErr := dsw.AddPod(types.UniquePodName(podName1), controllervolumetesting.NewPod(podName1, podName1), volumeSpec, nodeName1)
+	generatedVolumeName, podAddErr := dsw.AddPod(types.UniquePodName(podName1), controllervolumetesting.NewPod(podName1, podName1), volumeSpec, nodeName1, volumeNameFromSpec)
 	if podAddErr != nil {
 		t.Fatalf("AddPod failed. Expected: <no error> Actual: <%v>", podAddErr)
 	}
-	_, podAddErr = dsw.AddPod(types.UniquePodName(podName2), controllervolumetesting.NewPod(podName2, podName2), volumeSpec, nodeName2)
+	_, podAddErr = dsw.AddPod(types.UniquePodName(podName2), controllervolumetesting.NewPod(podName2, podName2), volumeSpec, nodeName2, volumeNameFromSpec)
 	if podAddErr != nil {
 		t.Fatalf("AddPod failed. Expected: <no error> Actual: <%v>", podAddErr)
 	}

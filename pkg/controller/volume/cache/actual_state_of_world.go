@@ -32,7 +32,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/kubernetes/pkg/volume"
 	"k8s.io/kubernetes/pkg/volume/util/operationexecutor"
-	"k8s.io/kubernetes/pkg/volume/util/volumehelper"
 )
 
 // ActualStateOfWorld defines a set of thread-safe operations supported on
@@ -145,11 +144,10 @@ type AttachedVolume struct {
 }
 
 // NewActualStateOfWorld returns a new instance of ActualStateOfWorld.
-func NewActualStateOfWorld(volumePluginMgr *volume.VolumePluginMgr) ActualStateOfWorld {
+func NewActualStateOfWorld() ActualStateOfWorld {
 	return &actualStateOfWorld{
 		attachedVolumes:        make(map[v1.UniqueVolumeName]attachedVolume),
 		nodesToUpdateStatusFor: make(map[types.NodeName]nodeToUpdateStatusFor),
-		volumePluginMgr:        volumePluginMgr,
 	}
 }
 
@@ -165,10 +163,6 @@ type actualStateOfWorld struct {
 	// of the node and the value is an object containing more information about
 	// the node (including the list of volumes to report attached).
 	nodesToUpdateStatusFor map[types.NodeName]nodeToUpdateStatusFor
-
-	// volumePluginMgr is the volume plugin manager used to create volume
-	// plugin objects.
-	volumePluginMgr *volume.VolumePluginMgr
 
 	sync.RWMutex
 }
@@ -261,35 +255,9 @@ func (asw *actualStateOfWorld) AddVolumeToReportAsAttached(
 }
 
 func (asw *actualStateOfWorld) AddVolumeNode(
-	uniqueName v1.UniqueVolumeName, volumeSpec *volume.Spec, nodeName types.NodeName, devicePath string) (v1.UniqueVolumeName, error) {
+	volumeName v1.UniqueVolumeName, volumeSpec *volume.Spec, nodeName types.NodeName, devicePath string) (v1.UniqueVolumeName, error) {
 	asw.Lock()
 	defer asw.Unlock()
-
-	var volumeName v1.UniqueVolumeName
-	if volumeSpec != nil {
-		attachableVolumePlugin, err := asw.volumePluginMgr.FindAttachablePluginBySpec(volumeSpec)
-		if err != nil || attachableVolumePlugin == nil {
-			return "", fmt.Errorf(
-				"failed to get AttachablePlugin from volumeSpec for volume %q err=%v",
-				volumeSpec.Name(),
-				err)
-		}
-
-		volumeName, err = volumehelper.GetUniqueVolumeNameFromSpec(
-			attachableVolumePlugin, volumeSpec)
-		if err != nil {
-			return "", fmt.Errorf(
-				"failed to GetUniqueVolumeNameFromSpec for volumeSpec %q err=%v",
-				volumeSpec.Name(),
-				err)
-		}
-	} else {
-		// volumeSpec is nil
-		// This happens only on controller startup when reading the volumes from node
-		// status; if the pods using the volume have been removed and are unreachable
-		// the volumes should be detached immediately and the spec is not needed
-		volumeName = uniqueName
-	}
 
 	volumeObj, volumeExists := asw.attachedVolumes[volumeName]
 	if !volumeExists {

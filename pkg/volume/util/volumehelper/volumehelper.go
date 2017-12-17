@@ -157,3 +157,36 @@ func GetPersistentVolumeClaimVolumeMode(claim *v1.PersistentVolumeClaim) (v1.Per
 	}
 	return "", fmt.Errorf("cannot get volumeMode from pvc: %v", claim.Name)
 }
+
+func GetVolumeNameFromPluginMgr(
+	uniqueName v1.UniqueVolumeName,
+	volumeSpec *volume.Spec,
+	volumePluginMgr *volume.VolumePluginMgr) (v1.UniqueVolumeName, error) {
+	var volumeName v1.UniqueVolumeName
+	if volumeSpec != nil {
+		attachableVolumePlugin, err := volumePluginMgr.FindAttachablePluginBySpec(volumeSpec)
+		if err != nil || attachableVolumePlugin == nil {
+			return "", fmt.Errorf(
+				"failed to get AttachablePlugin from volumeSpec for volume %q err=%v",
+				volumeSpec.Name(),
+				err)
+		}
+
+		volumeName, err = GetUniqueVolumeNameFromSpec(
+			attachableVolumePlugin, volumeSpec)
+		if err != nil {
+			return "", fmt.Errorf(
+				"failed to GetUniqueVolumeNameFromSpec for volumeSpec %q err=%v",
+				volumeSpec.Name(),
+				err)
+		}
+	} else {
+		// volumeSpec is nil
+		// This happens only on controller startup when reading the volumes from node
+		// status; if the pods using the volume have been removed and are unreachable
+		// the volumes should be detached immediately and the spec is not needed
+		volumeName = uniqueName
+	}
+
+	return volumeName, nil
+}

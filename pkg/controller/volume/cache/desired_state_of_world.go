@@ -30,7 +30,6 @@ import (
 	"k8s.io/kubernetes/pkg/volume"
 	"k8s.io/kubernetes/pkg/volume/util/operationexecutor"
 	"k8s.io/kubernetes/pkg/volume/util/types"
-	"k8s.io/kubernetes/pkg/volume/util/volumehelper"
 )
 
 // DesiredStateOfWorld defines a set of thread-safe operations supported on
@@ -60,7 +59,8 @@ type DesiredStateOfWorld interface {
 	// should be attached to the specified node, the volume is implicitly added.
 	// If no node with the name nodeName exists in list of nodes managed by the
 	// attach/detach attached controller, an error is returned.
-	AddPod(podName types.UniquePodName, pod *v1.Pod, volumeSpec *volume.Spec, nodeName k8stypes.NodeName) (v1.UniqueVolumeName, error)
+	AddPod(podName types.UniquePodName, pod *v1.Pod, volumeSpec *volume.Spec,
+		nodeName k8stypes.NodeName, volumeName v1.UniqueVolumeName) (v1.UniqueVolumeName, error)
 
 	// DeleteNode removes the given node from the list of nodes managed by the
 	// attach/detach controller.
@@ -126,10 +126,9 @@ type PodToAdd struct {
 }
 
 // NewDesiredStateOfWorld returns a new instance of DesiredStateOfWorld.
-func NewDesiredStateOfWorld(volumePluginMgr *volume.VolumePluginMgr) DesiredStateOfWorld {
+func NewDesiredStateOfWorld() DesiredStateOfWorld {
 	return &desiredStateOfWorld{
-		nodesManaged:    make(map[k8stypes.NodeName]nodeManaged),
-		volumePluginMgr: volumePluginMgr,
+		nodesManaged: make(map[k8stypes.NodeName]nodeManaged),
 	}
 }
 
@@ -138,9 +137,6 @@ type desiredStateOfWorld struct {
 	// detach controller. The key in this map is the name of the node and the
 	// value is a node object containing more information about the node.
 	nodesManaged map[k8stypes.NodeName]nodeManaged
-	// volumePluginMgr is the volume plugin manager used to create volume
-	// plugin objects.
-	volumePluginMgr *volume.VolumePluginMgr
 	sync.RWMutex
 }
 
@@ -208,7 +204,8 @@ func (dsw *desiredStateOfWorld) AddPod(
 	podName types.UniquePodName,
 	podToAdd *v1.Pod,
 	volumeSpec *volume.Spec,
-	nodeName k8stypes.NodeName) (v1.UniqueVolumeName, error) {
+	nodeName k8stypes.NodeName,
+	volumeName v1.UniqueVolumeName) (v1.UniqueVolumeName, error) {
 	dsw.Lock()
 	defer dsw.Unlock()
 
@@ -217,23 +214,6 @@ func (dsw *desiredStateOfWorld) AddPod(
 		return "", fmt.Errorf(
 			"no node with the name %q exists in the list of managed nodes",
 			nodeName)
-	}
-
-	attachableVolumePlugin, err := dsw.volumePluginMgr.FindAttachablePluginBySpec(volumeSpec)
-	if err != nil || attachableVolumePlugin == nil {
-		return "", fmt.Errorf(
-			"failed to get AttachablePlugin from volumeSpec for volume %q err=%v",
-			volumeSpec.Name(),
-			err)
-	}
-
-	volumeName, err := volumehelper.GetUniqueVolumeNameFromSpec(
-		attachableVolumePlugin, volumeSpec)
-	if err != nil {
-		return "", fmt.Errorf(
-			"failed to GetUniqueVolumeNameFromSpec for volumeSpec %q err=%v",
-			volumeSpec.Name(),
-			err)
 	}
 
 	volumeObj, volumeExists := nodeObj.volumesToAttach[volumeName]
