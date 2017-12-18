@@ -102,7 +102,8 @@ func NewAttachDetachController(
 	disableReconciliationSync bool,
 	reconcilerSyncDuration time.Duration,
 	timerConfig TimerConfig,
-	desiredStateOfWorld cache.DesiredStateOfWorld) (AttachDetachController, error) {
+	desiredStateOfWorld cache.DesiredStateOfWorld,
+	actualStateOfWorld cache.ActualStateOfWorld) (AttachDetachController, error) {
 	// TODO: The default resyncPeriod for shared informers is 12 hours, this is
 	// unacceptable for the attach/detach controller. For example, if a pod is
 	// skipped because the node it is scheduled to didn't set its annotation in
@@ -141,7 +142,7 @@ func NewAttachDetachController(
 	blkutil := volumeutil.NewBlockVolumePathHandler()
 
 	adc.desiredStateOfWorld = desiredStateOfWorld
-	adc.actualStateOfWorld = cache.NewActualStateOfWorld()
+	adc.actualStateOfWorld = actualStateOfWorld
 	adc.attacherDetacher =
 		operationexecutor.NewOperationExecutor(operationexecutor.NewOperationGenerator(
 			kubeClient,

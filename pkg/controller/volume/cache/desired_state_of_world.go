@@ -105,6 +105,9 @@ type DesiredStateOfWorld interface {
 	// Mark multiattach error as reported to prevent spamming multiple
 	// events for same error
 	SetMultiAttachError(v1.UniqueVolumeName, k8stypes.NodeName)
+
+	// Get all pods using the volume with specified name
+	GetPodsInVolume(volumeName v1.UniqueVolumeName) []*v1.Pod
 }
 
 // VolumeToAttach represents a volume that should be attached to a node.
@@ -386,6 +389,20 @@ func (dsw *desiredStateOfWorld) GetPodToAdd() map[types.UniquePodName]PodToAdd {
 					Pod:        pod.podObj,
 					VolumeName: volumeName,
 					NodeName:   nodeName,
+				}
+			}
+		}
+	}
+	return pods
+}
+
+func (dsw *desiredStateOfWorld) GetPodsInVolume(volumeName v1.UniqueVolumeName) []*v1.Pod {
+	pods := make([]*v1.Pod, 0)
+	for _, nodeObj := range dsw.nodesManaged {
+		for volName, volumeObj := range nodeObj.volumesToAttach {
+			if volName == volumeName {
+				for _, pod := range volumeObj.scheduledPods {
+					pods = append(pods, pod.podObj)
 				}
 			}
 		}

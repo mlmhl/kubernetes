@@ -96,10 +96,13 @@ type expandController struct {
 
 func NewExpandController(
 	kubeClient clientset.Interface,
+	podInformer coreinformers.PodInformer,
 	pvcInformer coreinformers.PersistentVolumeClaimInformer,
 	pvInformer coreinformers.PersistentVolumeInformer,
 	cloud cloudprovider.Interface,
-	plugins []volume.VolumePlugin) (ExpandController, error) {
+	plugins []volume.VolumePlugin,
+	podsInVolumeGetter cache.PodsInVolumeGetter,
+	volumeMountedNodesGetter cache.VolumeMountedNodesGetter) (ExpandController, error) {
 
 	expc := &expandController{
 		kubeClient: kubeClient,
@@ -127,7 +130,8 @@ func NewExpandController(
 		false,
 		blkutil))
 
-	expc.resizeMap = cache.NewVolumeResizeMap(expc.kubeClient)
+	expc.resizeMap = cache.NewVolumeResizeMap(
+		expc.kubeClient, podInformer.Lister(), podsInVolumeGetter, volumeMountedNodesGetter)
 
 	pvcInformer.Informer().AddEventHandler(kcache.ResourceEventHandlerFuncs{
 		UpdateFunc: expc.pvcUpdate,

@@ -282,6 +282,9 @@ type ControllerContext struct {
 	// for an individual controller to start the shared informers. Before it is closed, they should not.
 	InformersStarted chan struct{}
 
+	// ActualStateOfWorld is the actual state of volumes used by AttachDetachController and ExpandController.
+	ActualStateOfWorld cache.ActualStateOfWorld
+
 	// DesiredStateOfWorld is the desired state of volumes used by AttachDetachController and ExpandController.
 	DesiredStateOfWorld cache.DesiredStateOfWorld
 }
@@ -485,6 +488,7 @@ func CreateControllerContext(s *options.CMServer, rootClientBuilder, clientBuild
 		LoopMode:            loopMode,
 		Stop:                stop,
 		InformersStarted:    make(chan struct{}),
+		ActualStateOfWorld:  cache.NewActualStateOfWorld(),
 		DesiredStateOfWorld: cache.NewDesiredStateOfWorld(),
 	}
 	return ctx, nil

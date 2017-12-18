@@ -45,6 +45,10 @@ const (
 	// VolumeDynamicallyCreatedByKey is the key of the annotation on PersistentVolume
 	// object created dynamically
 	VolumeDynamicallyCreatedByKey = "kubernetes.io/createdby"
+
+	// volumeFSResizeRequiredAnnotation is the key template of the annotation on Pod
+	// objects that indicates fs resize operation of the volume
+	volumeFSResizingAnnotation = "expand.volumes.alpha.kubernetes.io/fs-resizing-"
 )
 
 // GetUniquePodName returns a unique identifier to reference a pod by
@@ -189,4 +193,8 @@ func GetVolumeNameFromPluginMgr(
 	}
 
 	return volumeName, nil
+}
+
+func GetVolumeFsResizeAnnotation(pvcName string) string {
+	return fmt.Sprintf("%s%s", volumeFSResizingAnnotation, pvcName)
 }

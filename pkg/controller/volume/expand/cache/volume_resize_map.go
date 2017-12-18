@@ -27,10 +27,23 @@ import (
 	commontypes "k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
 	clientset "k8s.io/client-go/kubernetes"
+	corelisters "k8s.io/client-go/listers/core/v1"
 	"k8s.io/kubernetes/pkg/controller/volume/expand/util"
 	"k8s.io/kubernetes/pkg/util/strings"
+	"k8s.io/kubernetes/pkg/volume"
 	"k8s.io/kubernetes/pkg/volume/util/types"
+	"k8s.io/kubernetes/pkg/volume/util/volumehelper"
 )
+
+// PodsInVolumeGetter defines a method to fetch all pods using a volume with specified name.
+type PodsInVolumeGetter interface {
+	// Get all pods using the volume with specified name
+	GetPodsInVolume(volumeName v1.UniqueVolumeName) []*v1.Pod
+}
+
+type VolumeMountedNodesGetter interface {
+	GetMountedNodesForVolume(volumeName v1.UniqueVolumeName) []commontypes.NodeName
+}
 
 // VolumeResizeMap defines an interface that serves as a cache for holding pending resizing requests
 type VolumeResizeMap interface {
@@ -44,6 +57,8 @@ type VolumeResizeMap interface {
 	MarkAsResized(*PVCWithResizeRequest, resource.Quantity) error
 	// UpdatePVSize updates just pv size after cloudprovider resizing is successful
 	UpdatePVSize(*PVCWithResizeRequest, resource.Quantity) error
+	// MarkForFileSystemResize mark the PVC need resizing by kubelet.
+	MarkForFileSystemResize(*volume.Spec, v1.UniqueVolumeName) error
 }
 
 type volumeResizeMap struct {
@@ -53,6 +68,12 @@ type volumeResizeMap struct {
 	kubeClient clientset.Interface
 	// for guarding access to pvcrs map
 	sync.RWMutex
+	// Used to get pod info with specified namespace and name.
+	podLister corelisters.PodLister
+	// Used to fetch all pods using a volume
+	podsInVolumeGetter PodsInVolumeGetter
+	// Used to fetch all nodes mounted a volume.
+	volumeMountedNodesGetter VolumeMountedNodesGetter
 }
 
 // PVCWithResizeRequest struct defines data structure that stores state needed for
@@ -80,10 +101,17 @@ func (pvcr *PVCWithResizeRequest) QualifiedName() string {
 
 // NewVolumeResizeMap returns new VolumeResizeMap which acts as a cache
 // for holding pending resize requests.
-func NewVolumeResizeMap(kubeClient clientset.Interface) VolumeResizeMap {
+func NewVolumeResizeMap(
+	kubeClient clientset.Interface,
+	podLister corelisters.PodLister,
+	podsInVolumeGetter PodsInVolumeGetter,
+	volumeMountedNodesGetter VolumeMountedNodesGetter) VolumeResizeMap {
 	resizeMap := &volumeResizeMap{}
 	resizeMap.pvcrs = make(map[types.UniquePVCName]*PVCWithResizeRequest)
 	resizeMap.kubeClient = kubeClient
+	resizeMap.podLister = podLister
+	resizeMap.podsInVolumeGetter = podsInVolumeGetter
+	resizeMap.volumeMountedNodesGetter = volumeMountedNodesGetter
 	return resizeMap
 }
 
@@ -213,4 +241,92 @@ func (resizeMap *volumeResizeMap) updatePVCCapacityAndConditions(pvcr *PVCWithRe
 		return updateErr
 	}
 	return nil
+}
+
+// MarkForFileSystemResize add an annotation to pods using the volume with specified name. If one or more pods
+// in a node has been updated to reflect this resize operation, skip updating other pods in the same node.
+func (resizeMap *volumeResizeMap) MarkForFileSystemResize(
+	volumeSpec *volume.Spec,
+	uniqueVolumeName v1.UniqueVolumeName) error {
+	// Fetch pods using this volume from DesiredStateOfWorld.
+	pods := resizeMap.podsInVolumeGetter.GetPodsInVolume(uniqueVolumeName)
+	if len(pods) == 0 {
+		glog.V(5).Infof("Skip MarkForFileSystemResize %s as no pods using it", uniqueVolumeName)
+		return nil
+	}
+
+	// Fetch nodes mounted this volume from ActualStateOfWorld.
+	mountedNodes := make(map[string]bool)
+	for _, nodeName := range resizeMap.volumeMountedNodesGetter.GetMountedNodesForVolume(uniqueVolumeName) {
+		mountedNodes[string(nodeName)] = true
+	}
+
+	podObjs := make([]*v1.Pod, 0, len(pods))
+	markedNodes := make(map[commontypes.NodeName]bool)
+	for _, pod := range pods {
+		podObj, err := resizeMap.podLister.Pods(pod.Namespace).Get(pod.Name)
+		if err != nil {
+			return fmt.Errorf("get pod %s/%s using PVC %s failed: %v",
+				pod.Name, pod.Namespace, uniqueVolumeName, err)
+		}
+		podObj = podObj.DeepCopy()
+
+		if len(podObj.Spec.NodeName) == 0 {
+			glog.V(5).Infof("Skip MarkForFileSystemResize for pvc %s pod %s/%s: pod not scheduled",
+				uniqueVolumeName, pod.Name, pod.Namespace)
+			continue
+		}
+
+		// If volume hasn't been mounted to the node, we do not add annotation to pods running on this node.
+		if !mountedNodes[podObj.Spec.NodeName] {
+			glog.V(5).Infof("Skip MarkForFileSystemResize for pvc %s pod %s/%s: "+
+				"volume not mounted to %s yet", uniqueVolumeName, pod.Name, pod.Namespace, podObj.Spec.NodeName)
+			continue
+		}
+
+		// Check whether one or more pods has been updated in the
+		// node or not, if so, skip other pods running on same node.
+		if markedNodes[commontypes.NodeName(podObj.Spec.NodeName)] {
+			continue
+		}
+
+		if resizeMap.podHasMarkedForPVCResizing(podObj, volumeSpec.Name()) {
+			markedNodes[commontypes.NodeName(podObj.Spec.NodeName)] = true
+			glog.V(5).Infof("Skip update pod %s/%s annotation for "+
+				"pvc %s resizing as it already updated", podObj.Name, podObj.Namespace, uniqueVolumeName)
+		} else {
+			podObjs = append(podObjs, podObj)
+		}
+	}
+
+	for _, podObj := range podObjs {
+		if markedNodes[commontypes.NodeName(podObj.Spec.NodeName)] {
+			glog.V(5).Infof("Skip MarkForFileSystemResize for pvc %s pod %s/%s: "+
+				"another pod in the same node has been marked", uniqueVolumeName, podObj.Name, podObj.Namespace)
+			continue
+		}
+
+		markErr := resizeMap.updatePodAnnotationForPVCResizing(podObj, volumeSpec.Name())
+		if markErr != nil {
+			glog.Errorf("Update pod %s/%s annotation for pvc %s resizing failed: %v", podObj.Name, podObj.Namespace, uniqueVolumeName, markErr)
+			return markErr
+		}
+		markedNodes[commontypes.NodeName(podObj.Spec.NodeName)] = true
+	}
+
+	return nil
+}
+
+func (resizeMap *volumeResizeMap) podHasMarkedForPVCResizing(pod *v1.Pod, pvcName string) bool {
+	resizeAnnValue, exist := pod.Annotations[volumehelper.GetVolumeFsResizeAnnotation(pvcName)]
+	return exist && resizeAnnValue == "yes"
+}
+
+func (resizeMap *volumeResizeMap) updatePodAnnotationForPVCResizing(pod *v1.Pod, pvcName string) error {
+	if pod.Annotations == nil {
+		pod.Annotations = make(map[string]string)
+	}
+	pod.Annotations[volumehelper.GetVolumeFsResizeAnnotation(pvcName)] = "yes"
+	_, err := resizeMap.kubeClient.CoreV1().Pods(pod.Namespace).Update(pod)
+	return err
 }

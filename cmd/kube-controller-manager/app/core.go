@@ -188,7 +188,7 @@ func startAttachDetachController(ctx ControllerContext) (bool, error) {
 			ctx.Options.ReconcilerSyncLoopPeriod.Duration,
 			attachdetach.DefaultTimerConfig,
 			ctx.DesiredStateOfWorld,
-		)
+			ctx.ActualStateOfWorld)
 	if attachDetachControllerErr != nil {
 		return true, fmt.Errorf("failed to start attach/detach controller: %v", attachDetachControllerErr)
 	}
@@ -200,10 +200,13 @@ func startVolumeExpandController(ctx ControllerContext) (bool, error) {
 	if utilfeature.DefaultFeatureGate.Enabled(features.ExpandPersistentVolumes) {
 		expandController, expandControllerErr := expand.NewExpandController(
 			ctx.ClientBuilder.ClientOrDie("expand-controller"),
+			ctx.InformerFactory.Core().V1().Pods(),
 			ctx.InformerFactory.Core().V1().PersistentVolumeClaims(),
 			ctx.InformerFactory.Core().V1().PersistentVolumes(),
 			ctx.Cloud,
-			ProbeExpandableVolumePlugins(ctx.Options.VolumeConfiguration))
+			ProbeExpandableVolumePlugins(ctx.Options.VolumeConfiguration),
+			ctx.DesiredStateOfWorld,
+			ctx.ActualStateOfWorld)
 
 		if expandControllerErr != nil {
 			return true, fmt.Errorf("Failed to start volume expand controller : %v", expandControllerErr)

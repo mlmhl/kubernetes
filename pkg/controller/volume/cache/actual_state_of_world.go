@@ -124,6 +124,9 @@ type ActualStateOfWorld interface {
 
 	// GetNodesToUpdateStatusFor returns the map of nodeNames to nodeToUpdateStatusFor
 	GetNodesToUpdateStatusFor() map[types.NodeName]nodeToUpdateStatusFor
+
+	// GetMountedNodesForVolume returns the nodes on which the volume is mounted.
+	GetMountedNodesForVolume(volumeName v1.UniqueVolumeName) []types.NodeName
 }
 
 // AttachedVolume represents a volume that is attached to a node.
@@ -599,6 +602,24 @@ func (asw *actualStateOfWorld) GetVolumesToReportAttached() map[types.NodeName][
 
 func (asw *actualStateOfWorld) GetNodesToUpdateStatusFor() map[types.NodeName]nodeToUpdateStatusFor {
 	return asw.nodesToUpdateStatusFor
+}
+
+func (asw *actualStateOfWorld) GetMountedNodesForVolume(volumeName v1.UniqueVolumeName) []types.NodeName {
+	asw.RLock()
+	defer asw.RUnlock()
+
+	volumeObj, volumeExists := asw.attachedVolumes[volumeName]
+	if !volumeExists || len(volumeObj.nodesAttachedTo) == 0 {
+		return []types.NodeName{}
+	}
+
+	nodes := []types.NodeName{}
+	for k := range volumeObj.nodesAttachedTo {
+		if volumeObj.nodesAttachedTo[k].mountedByNode {
+			nodes = append(nodes, k)
+		}
+	}
+	return nodes
 }
 
 func getAttachedVolume(

@@ -1303,6 +1303,22 @@ func (og *operationGenerator) GenerateExpandVolumeFunc(
 				detailedErr := fmt.Errorf("Error marking pvc %s as resized : %v", pvcWithResizeRequest.QualifiedName(), err)
 				return detailedErr, detailedErr
 			}
+		} else {
+			glog.V(4).Infof("Mark PVC %s as need resizing by kubelet", pvcWithResizeRequest.QualifiedName())
+
+			uniqueVolumeName, getNameErr := volumehelper.GetUniqueVolumeNameFromSpec(volumePlugin, volumeSpec)
+			if getNameErr != nil {
+				detailedErr := fmt.Errorf(
+					"failed to GetUniqueVolumeNameFromSpec for volumeSpec %q using volume plugin %q err=%v",
+					volumeSpec.Name(), volumePlugin.GetPluginName(), getNameErr)
+				return detailedErr, detailedErr
+			}
+
+			markErr := resizeMap.MarkForFileSystemResize(volumeSpec, uniqueVolumeName)
+			if markErr != nil {
+				detailedErr := fmt.Errorf("Error marking pvc %s as resizing: %v", pvcWithResizeRequest.QualifiedName(), markErr)
+				return detailedErr, detailedErr
+			}
 		}
 		return nil, nil
 
