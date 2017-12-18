@@ -155,6 +155,9 @@ func buildControllerRoles() ([]rbac.ClusterRole, []rbac.ClusterRoleBinding) {
 				rbac.NewRule("get", "list", "watch").Groups(storageGroup).Resources("storageclasses").RuleOrDie(),
 				rbac.NewRule("get").Groups(legacyGroup).Resources("services", "endpoints").RuleOrDie(),
 				rbac.NewRule("get").Groups(legacyGroup).Resources("secrets").RuleOrDie(),
+				// online file system resize
+				// TODO: Add a controller admission plugin to perform a stricter restriction?
+				rbac.NewRule("get", "update").Groups(legacyGroup).Resources("pods").RuleOrDie(),
 				eventsRule(),
 			},
 		})
