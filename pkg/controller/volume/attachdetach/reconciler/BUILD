@@ -11,8 +11,8 @@ go_library(
     srcs = ["reconciler.go"],
     importpath = "k8s.io/kubernetes/pkg/controller/volume/attachdetach/reconciler",
     deps = [
-        "//pkg/controller/volume/attachdetach/cache:go_default_library",
         "//pkg/controller/volume/attachdetach/statusupdater:go_default_library",
+        "//pkg/controller/volume/cache:go_default_library",
         "//pkg/kubelet/events:go_default_library",
         "//pkg/util/goroutinemap/exponentialbackoff:go_default_library",
         "//pkg/volume:go_default_library",
@@ -31,9 +31,9 @@ go_test(
     importpath = "k8s.io/kubernetes/pkg/controller/volume/attachdetach/reconciler",
     deps = [
         "//pkg/controller:go_default_library",
-        "//pkg/controller/volume/attachdetach/cache:go_default_library",
         "//pkg/controller/volume/attachdetach/statusupdater:go_default_library",
         "//pkg/controller/volume/attachdetach/testing:go_default_library",
+        "//pkg/controller/volume/cache:go_default_library",
         "//pkg/volume/testing:go_default_library",
         "//pkg/volume/util/operationexecutor:go_default_library",
         "//pkg/volume/util/types:go_default_library",

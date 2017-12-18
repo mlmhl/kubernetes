@@ -13,11 +13,11 @@ go_library(
     deps = [
         "//pkg/cloudprovider:go_default_library",
         "//pkg/controller:go_default_library",
-        "//pkg/controller/volume/attachdetach/cache:go_default_library",
         "//pkg/controller/volume/attachdetach/populator:go_default_library",
         "//pkg/controller/volume/attachdetach/reconciler:go_default_library",
         "//pkg/controller/volume/attachdetach/statusupdater:go_default_library",
-        "//pkg/controller/volume/attachdetach/util:go_default_library",
+        "//pkg/controller/volume/cache:go_default_library",
+        "//pkg/controller/volume/util:go_default_library",
         "//pkg/util/io:go_default_library",
         "//pkg/util/mount:go_default_library",
         "//pkg/volume:go_default_library",
@@ -46,8 +46,8 @@ go_test(
     importpath = "k8s.io/kubernetes/pkg/controller/volume/attachdetach",
     deps = [
         "//pkg/controller:go_default_library",
-        "//pkg/controller/volume/attachdetach/cache:go_default_library",
         "//pkg/controller/volume/attachdetach/testing:go_default_library",
+        "//pkg/controller/volume/cache:go_default_library",
         "//pkg/volume:go_default_library",
         "//vendor/k8s.io/api/core/v1:go_default_library",
         "//vendor/k8s.io/apimachinery/pkg/apis/meta/v1:go_default_library",
@@ -68,12 +68,10 @@ filegroup(
     name = "all-srcs",
     srcs = [
         ":package-srcs",
-        "//pkg/controller/volume/attachdetach/cache:all-srcs",
         "//pkg/controller/volume/attachdetach/populator:all-srcs",
         "//pkg/controller/volume/attachdetach/reconciler:all-srcs",
         "//pkg/controller/volume/attachdetach/statusupdater:all-srcs",
         "//pkg/controller/volume/attachdetach/testing:all-srcs",
-        "//pkg/controller/volume/attachdetach/util:all-srcs",
     ],
     tags = ["automanaged"],
 )

@@ -11,8 +11,8 @@ go_library(
     srcs = ["desired_state_of_world_populator.go"],
     importpath = "k8s.io/kubernetes/pkg/controller/volume/attachdetach/populator",
     deps = [
-        "//pkg/controller/volume/attachdetach/cache:go_default_library",
-        "//pkg/controller/volume/attachdetach/util:go_default_library",
+        "//pkg/controller/volume/cache:go_default_library",
+        "//pkg/controller/volume/util:go_default_library",
         "//pkg/volume:go_default_library",
         "//pkg/volume/util/volumehelper:go_default_library",
         "//vendor/github.com/golang/glog:go_default_library",
@@ -45,7 +45,7 @@ go_test(
     importpath = "k8s.io/kubernetes/pkg/controller/volume/attachdetach/populator",
     deps = [
         "//pkg/controller:go_default_library",
-        "//pkg/controller/volume/attachdetach/cache:go_default_library",
+        "//pkg/controller/volume/cache:go_default_library",
         "//pkg/volume/testing:go_default_library",
         "//pkg/volume/util/volumehelper:go_default_library",
         "//vendor/k8s.io/api/core/v1:go_default_library",

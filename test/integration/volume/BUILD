@@ -20,7 +20,7 @@ go_test(
         "//pkg/api/testapi:go_default_library",
         "//pkg/cloudprovider/providers/fake:go_default_library",
         "//pkg/controller/volume/attachdetach:go_default_library",
-        "//pkg/controller/volume/attachdetach/cache:go_default_library",
+        "//pkg/controller/volume/cache:go_default_library",
         "//pkg/controller/volume/persistentvolume:go_default_library",
         "//pkg/volume:go_default_library",
         "//pkg/volume/testing:go_default_library",

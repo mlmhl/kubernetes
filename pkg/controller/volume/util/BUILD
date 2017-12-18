@@ -8,9 +8,9 @@ load(
 go_library(
     name = "go_default_library",
     srcs = ["util.go"],
-    importpath = "k8s.io/kubernetes/pkg/controller/volume/attachdetach/util",
+    importpath = "k8s.io/kubernetes/pkg/controller/volume/util",
     deps = [
-        "//pkg/controller/volume/attachdetach/cache:go_default_library",
+        "//pkg/controller/volume/cache:go_default_library",
         "//pkg/volume:go_default_library",
         "//pkg/volume/util/volumehelper:go_default_library",
         "//vendor/github.com/golang/glog:go_default_library",

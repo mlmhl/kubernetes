@@ -130,10 +130,12 @@ filegroup(
         "//pkg/controller/testutil:all-srcs",
         "//pkg/controller/ttl:all-srcs",
         "//pkg/controller/volume/attachdetach:all-srcs",
+        "//pkg/controller/volume/cache:all-srcs",
         "//pkg/controller/volume/events:all-srcs",
         "//pkg/controller/volume/expand:all-srcs",
         "//pkg/controller/volume/persistentvolume:all-srcs",
         "//pkg/controller/volume/pvcprotection:all-srcs",
+        "//pkg/controller/volume/util:all-srcs",
     ],
     tags = ["automanaged"],
 )
