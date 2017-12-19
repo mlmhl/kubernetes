@@ -19,6 +19,7 @@ package noderestriction
 import (
 	"fmt"
 	"io"
+	"strings"
 
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -38,6 +39,10 @@ import (
 
 const (
 	PluginName = "NodeRestriction"
+
+	// volumeFSResizeRequiredAnnotation is the key template of the annotation on Pod
+	// objects that indicates fs resize operation of the volume
+	volumeFSResizingAnnotation = "volumes.kubernetes.io/fs-resizing-"
 )
 
 // Register registers a plugin
@@ -167,6 +172,48 @@ func (c *nodePlugin) admitPod(nodeName string, a admission.Attributes) error {
 			if v.PersistentVolumeClaim != nil {
 				return admission.NewForbidden(a, fmt.Errorf("node %q can not create pods that reference persistentvolumeclaims", nodeName))
 			}
+		}
+
+		return nil
+
+	case admission.Update:
+		if !utilfeature.DefaultFeatureGate.Enabled(features.ExpandPersistentVolumes) {
+			return admission.NewForbidden(a, fmt.Errorf("node %q may not update pod metadata", nodeName))
+		}
+
+		oldPod, ok := a.GetOldObject().(*api.Pod)
+		if !ok {
+			return admission.NewForbidden(a, fmt.Errorf("unexpected type %T", a.GetOldObject()))
+		}
+
+		newPod, ok := a.GetObject().(*api.Pod)
+		if !ok {
+			return admission.NewForbidden(a, fmt.Errorf("unexpected type %T", a.GetObject()))
+		}
+
+		// make copies for comparison
+		oldPod = oldPod.DeepCopy()
+		newPod = newPod.DeepCopy()
+
+		// zero out resourceVersion to avoid comparing differences,
+		// since the new object could leave it empty to indicate an unconditional update
+		oldPod.ObjectMeta.ResourceVersion = ""
+		newPod.ObjectMeta.ResourceVersion = ""
+
+		for key := range oldPod.Annotations {
+			if strings.HasPrefix(key, volumeFSResizingAnnotation) {
+				delete(oldPod.Annotations, key)
+			}
+		}
+		for key := range newPod.Annotations {
+			if strings.HasPrefix(key, volumeFSResizingAnnotation) {
+				delete(newPod.Annotations, key)
+			}
+		}
+
+		// ensure no metadata changed. nodes should not be able to relabel, add finalizers/owners, etc
+		if !apiequality.Semantic.DeepEqual(oldPod, newPod) {
+			return admission.NewForbidden(a, fmt.Errorf("node %q may not update fields other than volume resize annotation: %v", nodeName, diff.ObjectReflectDiff(oldPod, newPod)))
 		}
 
 		return nil

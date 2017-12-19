@@ -142,7 +142,10 @@ func NodeRules() []rbac.PolicyRule {
 		// Use the Node authorization mode to limit a node to update status of pvc objects referenced by pods bound to itself.
 		// Use the NodeRestriction admission plugin to limit a node to just update the status stanza.
 		pvcStatusPolicyRule := rbac.NewRule("get", "update", "patch").Groups(legacyGroup).Resources("persistentvolumeclaims/status").RuleOrDie()
-		nodePolicyRules = append(nodePolicyRules, pvcStatusPolicyRule)
+		// Use the Node authorization mode to limit a node to update annotation of pods bound to itself.
+		// Use the NodeRestriction admission plugin to limit a node to just update the pod's volume resize annotation.
+		podResizeAnnotationPolicyRule := rbac.NewRule("update").Groups(legacyGroup).Resources("pods").RuleOrDie()
+		nodePolicyRules = append(nodePolicyRules, pvcStatusPolicyRule, podResizeAnnotationPolicyRule)
 	}
 
 	// CSI
