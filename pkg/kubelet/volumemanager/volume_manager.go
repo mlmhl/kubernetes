@@ -88,6 +88,9 @@ const (
 	// operation is waiting it only blocks other operations on the same device,
 	// other devices are not affected.
 	waitForAttachTimeout time.Duration = 10 * time.Minute
+
+	// VolumeFsResizeMapPopulator loop waits between successive executions
+	VolumeFsResizeMapPopulatorLoopSleepPeriod time.Duration = 100 * time.Millisecond
 )
 
 // VolumeManager runs a set of asynchronous loops that figure out which volumes
@@ -182,6 +185,14 @@ func NewVolumeManager(
 		vm.desiredStateOfWorld,
 		kubeContainerRuntime,
 		keepTerminatedPodVolumes)
+
+	volumeFsResizeMap := cache.NewVolumeFsResizeMap(kubeClient)
+	vm.volumeFsResizeMapPopulator = populator.NewVolumeFsResizeMapPopulator(
+		VolumeFsResizeMapPopulatorLoopSleepPeriod,
+		podManager,
+		podStatusProvider,
+		volumeFsResizeMap)
+
 	vm.reconciler = reconciler.NewReconciler(
 		kubeClient,
 		controllerAttachDetachEnabled,
@@ -195,7 +206,8 @@ func NewVolumeManager(
 		vm.operationExecutor,
 		mounter,
 		volumePluginMgr,
-		kubeletPodsDir)
+		kubeletPodsDir,
+		volumeFsResizeMap)
 
 	return vm
 }
@@ -236,6 +248,10 @@ type volumeManager struct {
 	// desiredStateOfWorldPopulator runs an asynchronous periodic loop to
 	// populate the desiredStateOfWorld using the kubelet PodManager.
 	desiredStateOfWorldPopulator populator.DesiredStateOfWorldPopulator
+
+	// volumeFsResizeMapPopulator runs an asynchronous periodic loop to
+	// populate the volumes need file system resize using the kubelet PodManager.
+	volumeFsResizeMapPopulator populator.VolumeFsResizeMapPopulator
 }
 
 func (vm *volumeManager) Run(sourcesReady config.SourcesReady, stopCh <-chan struct{}) {
@@ -243,6 +259,9 @@ func (vm *volumeManager) Run(sourcesReady config.SourcesReady, stopCh <-chan str
 
 	go vm.desiredStateOfWorldPopulator.Run(sourcesReady, stopCh)
 	glog.V(2).Infof("The desired_state_of_world populator starts")
+
+	go vm.volumeFsResizeMapPopulator.Run(stopCh)
+	glog.V(2).Infof("The volume_fs_resize_map populator starts")
 
 	glog.Infof("Starting Kubelet Volume Manager")
 	go vm.reconciler.Run(stopCh)

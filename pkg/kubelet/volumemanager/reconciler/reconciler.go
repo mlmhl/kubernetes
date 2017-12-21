@@ -103,7 +103,8 @@ func NewReconciler(
 	operationExecutor operationexecutor.OperationExecutor,
 	mounter mount.Interface,
 	volumePluginMgr *volumepkg.VolumePluginMgr,
-	kubeletPodsDir string) Reconciler {
+	kubeletPodsDir string,
+	volumeFsResizeMap cache.VolumeFsResizeMap) Reconciler {
 	return &reconciler{
 		kubeClient:                    kubeClient,
 		controllerAttachDetachEnabled: controllerAttachDetachEnabled,
@@ -119,6 +120,7 @@ func NewReconciler(
 		volumePluginMgr:               volumePluginMgr,
 		kubeletPodsDir:                kubeletPodsDir,
 		timeOfLastSync:                time.Time{},
+		volumeFsResizeMap:             volumeFsResizeMap,
 	}
 }
 
@@ -137,6 +139,7 @@ type reconciler struct {
 	volumePluginMgr               *volumepkg.VolumePluginMgr
 	kubeletPodsDir                string
 	timeOfLastSync                time.Time
+	volumeFsResizeMap             cache.VolumeFsResizeMap
 }
 
 func (rc *reconciler) Run(stopCh <-chan struct{}) {
@@ -314,6 +317,8 @@ func (rc *reconciler) reconcile() {
 			}
 		}
 	}
+
+	rc.processOnlineFsResize()
 }
 
 // sync process tries to observe the real world by scanning all pods' volume directories from the disk.
@@ -591,7 +596,7 @@ func (rc *reconciler) updateStates(volumesNeedUpdate map[v1.UniqueVolumeName]*re
 			continue
 		}
 		if volume.pluginIsAttachable {
-			err = rc.actualStateOfWorld.MarkDeviceAsMounted(volume.volumeName)
+			err = rc.actualStateOfWorld.MarkDeviceAsMounted(volume.volumeName, volume.devicePath)
 			if err != nil {
 				glog.Errorf("Could not mark device is mounted to actual state of world: %v", err)
 				continue
@@ -669,4 +674,74 @@ func getVolumesFromPodDir(podDir string) ([]podVolume, error) {
 	}
 	glog.V(10).Infof("Get volumes from pod directory %q %+v", podDir, volumes)
 	return volumes, nil
+}
+
+func (rc *reconciler) processOnlineFsResize() {
+	volumesToResize := rc.volumeFsResizeMap.GetVolumesToResize()
+	if len(volumesToResize) == 0 {
+		return
+	}
+
+	mountedVolumes := make(map[string]cache.AttachedVolume)
+	for _, attachedVolume := range rc.actualStateOfWorld.GetGloballyMountedVolumes() {
+		mountedVolumes[attachedVolume.VolumeSpec.Name()] = attachedVolume
+	}
+
+	for _, volumeToResize := range volumesToResize {
+		podName := volumehelper.GetUniquePodName(volumeToResize.Pod)
+		mountedVolume, exist := mountedVolumes[volumeToResize.VolumeName]
+		if !exist {
+			glog.V(5).Infof("Skip file system resize for Pod %s/%s PVC %s: PVC not mounted",
+				volumeToResize.Pod.Name, volumeToResize.Pod.Namespace, volumeToResize.VolumeName)
+			continue
+		}
+		volumeSpec := *mountedVolume.VolumeSpec
+		// Get the latest PV, as the Spec.Capacity of volumeToResize.VolumeSpec.PersistentVolume
+		// maybe not reflect the newest.
+		if updateErr := rc.updateVolumeSpec(&volumeSpec); updateErr != nil {
+			glog.Errorf("Skip file system resize for Pod %s/%s PVC %s as get latest pv failed with %v",
+				volumeToResize.Pod.Name, volumeToResize.Pod.Namespace, volumeToResize.VolumeName, updateErr)
+			continue
+		}
+		rc.volumeFileSystemResize(operationexecutor.VolumeToResize{
+			VolumeName: mountedVolume.VolumeName,
+			PodName:    podName,
+			VolumeSpec: &volumeSpec,
+			Pod:        volumeToResize.Pod,
+			DevicePath: mountedVolume.DevicePath,
+		})
+	}
+}
+
+func (rc *reconciler) updateVolumeSpec(volumeSpec *volumepkg.Spec) error {
+	if volumeSpec.PersistentVolume == nil {
+		return nil
+	}
+	pv, err := rc.kubeClient.CoreV1().PersistentVolumes().
+		Get(volumeSpec.PersistentVolume.Name, metav1.GetOptions{})
+	if err != nil {
+		return err
+	}
+	volumeSpec.PersistentVolume = pv
+	return nil
+}
+
+func (rc *reconciler) volumeFileSystemResize(volumeToResize operationexecutor.VolumeToResize) {
+	volumeHandler, handlerErr := operationexecutor.NewVolumeHandler(volumeToResize.VolumeSpec, rc.operationExecutor)
+	if handlerErr != nil {
+		glog.Errorf(volumeToResize.GenerateErrorDetailed(fmt.Sprintf("operationExecutor.NewVolumeHandler for FileSystemResize failed"), handlerErr).Error())
+		return
+	}
+	resizeErr := volumeHandler.FileSystemResizeHandler(volumeToResize, rc.volumeFsResizeMap)
+	if resizeErr != nil &&
+		!nestedpendingoperations.IsAlreadyExists(resizeErr) &&
+		!exponentialbackoff.IsExponentialBackoff(resizeErr) {
+		// Ignore nestedpendingoperations.IsAlreadyExists and exponentialbackoff.IsExponentialBackoff errors, they are expected.
+		// Log all other errors.
+		glog.Errorf(volumeToResize.GenerateErrorDetailed(
+			fmt.Sprintf("operationExecutor.VolumeFileSystemResize failed"), resizeErr).Error())
+	}
+	if resizeErr == nil {
+		glog.Infof(volumeToResize.GenerateMsgDetailed("operationExecutor.VolumeFileSystemResize started", ""))
+	}
 }

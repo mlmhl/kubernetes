@@ -266,6 +266,10 @@ func (plugin *awsElasticBlockStorePlugin) ExpandVolumeDevice(
 	return awsVolume.ResizeDisk(volumeID, oldSize, newSize)
 }
 
+func (plugin *awsElasticBlockStorePlugin) SupportOnlineFsResize() bool {
+	return true
+}
+
 var _ volume.ExpandableVolumePlugin = &awsElasticBlockStorePlugin{}
 
 // Abstract interface to PD operations.

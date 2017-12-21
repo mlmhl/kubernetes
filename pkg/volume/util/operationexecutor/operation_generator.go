@@ -122,6 +122,10 @@ type OperationGenerator interface {
 		map[*volume.Spec]v1.UniqueVolumeName, ActualStateOfWorldAttacherUpdater) (volumetypes.GeneratedOperations, error)
 
 	GenerateExpandVolumeFunc(*expandcache.PVCWithResizeRequest, expandcache.VolumeResizeMap) (volumetypes.GeneratedOperations, error)
+
+	// GenerateVolumeFileSystemResizeFunc generates the VolumeFileSystemResize
+	// function needed to perform volume online file system resize operation.
+	GenerateVolumeFileSystemResizeFunc(VolumeToResize, VolumeFsResizeMapUpdater) (volumetypes.GeneratedOperations, error)
 }
 
 func (og *operationGenerator) GenerateVolumesAreAttachedFunc(
@@ -508,7 +512,13 @@ func (og *operationGenerator) GenerateMountVolumeFunc(
 
 			// resizeFileSystem will resize the file system if user has requested a resize of
 			// underlying persistent volume and is allowed to do so.
-			resizeError := og.resizeFileSystem(volumeToMount, devicePath, volumePlugin.GetPluginName())
+			resizeError := og.resizeFileSystem(VolumeToResize{
+				VolumeName: volumeToMount.VolumeName,
+				PodName:    volumeToMount.PodName,
+				VolumeSpec: volumeToMount.VolumeSpec,
+				Pod:        volumeToMount.Pod,
+				DevicePath: devicePath,
+			}, volumePlugin.GetPluginName(), true)
 
 			if resizeError != nil {
 				return volumeToMount.GenerateError("MountVolume.Resize failed", resizeError)
@@ -535,7 +545,7 @@ func (og *operationGenerator) GenerateMountVolumeFunc(
 
 			// Update actual state of world to reflect volume is globally mounted
 			markDeviceMountedErr := actualStateOfWorld.MarkDeviceAsMounted(
-				volumeToMount.VolumeName)
+				volumeToMount.VolumeName, devicePath)
 			if markDeviceMountedErr != nil {
 				// On failure, return error. Caller will log and retry.
 				return volumeToMount.GenerateError("MountVolume.MarkDeviceAsMounted failed", markDeviceMountedErr)
@@ -597,37 +607,37 @@ func (og *operationGenerator) GenerateMountVolumeFunc(
 	}, nil
 }
 
-func (og *operationGenerator) resizeFileSystem(volumeToMount VolumeToMount, devicePath string, pluginName string) error {
+func (og *operationGenerator) resizeFileSystem(volumeToResize VolumeToResize, pluginName string, offline bool) error {
 	if !utilfeature.DefaultFeatureGate.Enabled(features.ExpandPersistentVolumes) {
-		glog.V(6).Infof("Resizing is not enabled for this volume %s", volumeToMount.VolumeName)
+		glog.V(6).Infof("Resizing is not enabled for this volume %s", volumeToResize.VolumeName)
 		return nil
 	}
 
 	mounter := og.volumePluginMgr.Host.GetMounter(pluginName)
 	// Get expander, if possible
 	expandableVolumePlugin, _ :=
-		og.volumePluginMgr.FindExpandablePluginBySpec(volumeToMount.VolumeSpec)
+		og.volumePluginMgr.FindExpandablePluginBySpec(volumeToResize.VolumeSpec)
 
 	if expandableVolumePlugin != nil &&
 		expandableVolumePlugin.RequiresFSResize() &&
-		volumeToMount.VolumeSpec.PersistentVolume != nil {
-		pv := volumeToMount.VolumeSpec.PersistentVolume
+		volumeToResize.VolumeSpec.PersistentVolume != nil {
+		pv := volumeToResize.VolumeSpec.PersistentVolume
 		pvc, err := og.kubeClient.CoreV1().PersistentVolumeClaims(pv.Spec.ClaimRef.Namespace).Get(pv.Spec.ClaimRef.Name, metav1.GetOptions{})
 		if err != nil {
 			// Return error rather than leave the file system un-resized, caller will log and retry
-			return volumeToMount.GenerateErrorDetailed("MountVolume get PVC failed", err)
+			return volumeToResize.GenerateErrorDetailed("MountVolume get PVC failed", err)
 		}
 
 		pvcStatusCap := pvc.Status.Capacity[v1.ResourceStorage]
 		pvSpecCap := pv.Spec.Capacity[v1.ResourceStorage]
 		if pvcStatusCap.Cmp(pvSpecCap) < 0 {
 			// File system resize was requested, proceed
-			glog.V(4).Infof(volumeToMount.GenerateMsgDetailed("MountVolume.resizeFileSystem entering", fmt.Sprintf("DevicePath %q", volumeToMount.DevicePath)))
+			glog.V(4).Infof(volumeToResize.GenerateMsgDetailed("MountVolume.resizeFileSystem entering", fmt.Sprintf("DevicePath %q", volumeToResize.DevicePath)))
 
-			if volumeToMount.VolumeSpec.ReadOnly {
-				simpleMsg, detailedMsg := volumeToMount.GenerateMsg("MountVolume.resizeFileSystem failed", "requested read-only file system")
+			if volumeToResize.VolumeSpec.ReadOnly {
+				simpleMsg, detailedMsg := volumeToResize.GenerateMsg("MountVolume.resizeFileSystem failed", "requested read-only file system")
 				glog.Warningf(detailedMsg)
-				og.recorder.Eventf(volumeToMount.Pod, v1.EventTypeWarning, kevents.FileSystemResizeFailed, simpleMsg)
+				og.recorder.Eventf(volumeToResize.Pod, v1.EventTypeWarning, kevents.FileSystemResizeFailed, simpleMsg)
 				return nil
 			}
 
@@ -637,18 +647,18 @@ func (og *operationGenerator) resizeFileSystem(volumeToMount VolumeToMount, devi
 			}
 
 			resizer := resizefs.NewResizeFs(diskFormatter)
-			resizeStatus, resizeErr := resizer.Resize(devicePath)
+			resizeStatus, resizeErr := resizer.Resize(volumeToResize.DevicePath, offline)
 
 			if resizeErr != nil {
-				resizeDetailedError := volumeToMount.GenerateErrorDetailed("MountVolume.resizeFileSystem failed", resizeErr)
+				resizeDetailedError := volumeToResize.GenerateErrorDetailed("MountVolume.resizeFileSystem failed", resizeErr)
 				glog.Error(resizeDetailedError)
-				og.recorder.Eventf(volumeToMount.Pod, v1.EventTypeWarning, kevents.FileSystemResizeFailed, resizeDetailedError.Error())
+				og.recorder.Eventf(volumeToResize.Pod, v1.EventTypeWarning, kevents.FileSystemResizeFailed, resizeDetailedError.Error())
 				return resizeDetailedError
 			}
 
 			if resizeStatus {
-				simpleMsg, detailedMsg := volumeToMount.GenerateMsg("MountVolume.resizeFileSystem succeeded", "")
-				og.recorder.Eventf(volumeToMount.Pod, v1.EventTypeNormal, kevents.FileSystemResizeSuccess, simpleMsg)
+				simpleMsg, detailedMsg := volumeToResize.GenerateMsg("MountVolume.resizeFileSystem succeeded", "")
+				og.recorder.Eventf(volumeToResize.Pod, v1.EventTypeNormal, kevents.FileSystemResizeSuccess, simpleMsg)
 				glog.Infof(detailedMsg)
 			}
 
@@ -656,7 +666,7 @@ func (og *operationGenerator) resizeFileSystem(volumeToMount VolumeToMount, devi
 			err = updatePVCStatusCapacity(pvc.Name, pvc, pv.Spec.Capacity, og.kubeClient)
 			if err != nil {
 				// On retry, resizeFileSystem will be called again but do nothing
-				return volumeToMount.GenerateErrorDetailed("MountVolume update PVC status failed", err)
+				return volumeToResize.GenerateErrorDetailed("MountVolume update PVC status failed", err)
 			}
 			return nil
 		}
@@ -858,7 +868,7 @@ func (og *operationGenerator) GenerateMapVolumeFunc(
 
 			// Update actual state of world to reflect volume is globally mounted
 			markDeviceMappedErr := actualStateOfWorld.MarkDeviceAsMounted(
-				volumeToMount.VolumeName)
+				volumeToMount.VolumeName, devicePath)
 			if markDeviceMappedErr != nil {
 				// On failure, return error. Caller will log and retry.
 				return volumeToMount.GenerateError("MapVolume.MarkDeviceAsMounted failed", markDeviceMappedErr)
@@ -1334,6 +1344,47 @@ func (og *operationGenerator) GenerateExpandVolumeFunc(
 		OperationFunc:     expandVolumeFunc,
 		EventRecorderFunc: eventRecorderFunc,
 		CompleteFunc:      util.OperationCompleteHook(volumePlugin.GetPluginName(), "expand_volume"),
+	}, nil
+}
+
+func (og *operationGenerator) GenerateVolumeFileSystemResizeFunc(
+	volumeToResize VolumeToResize,
+	volumeFsResizeMapUpdater VolumeFsResizeMapUpdater) (volumetypes.GeneratedOperations, error) {
+	volumePlugin, err := og.volumePluginMgr.FindExpandablePluginBySpec(volumeToResize.VolumeSpec)
+	if err != nil {
+		return volumetypes.GeneratedOperations{}, volumeToResize.GenerateErrorDetailed("Error finding plugin for resizing volume", err)
+	}
+
+	resizingFunc := func() (error, error) {
+		if volumePlugin.SupportOnlineFsResize() {
+			resizeError := og.resizeFileSystem(volumeToResize, volumePlugin.GetPluginName(), false)
+			if resizeError != nil {
+				// Set eventErr is not necessary as it has been already recorded in resizeFileSystem.
+				return nil, volumeToResize.GenerateErrorDetailed("ResizeVolume failed", resizeError)
+			}
+		} else {
+			glog.V(4).Info(
+				volumeToResize.GenerateMsgDetailed("Online file system resize not support", ""))
+		}
+
+		markErr := volumeFsResizeMapUpdater.MarkAsFileSystemResized(volumeToResize.Pod, volumeToResize.VolumeSpec.Name())
+		if markErr != nil {
+			detailedErr := volumeToResize.GenerateErrorDetailed("ResizeVolume.MarkAsFileSystemResized failed", markErr)
+			return detailedErr, detailedErr
+		}
+		return nil, nil
+	}
+
+	eventRecorderFunc := func(err *error) {
+		if *err != nil {
+			og.recorder.Eventf(volumeToResize.Pod, v1.EventTypeWarning, kevents.FileSystemResizeFailed, (*err).Error())
+		}
+	}
+
+	return volumetypes.GeneratedOperations{
+		OperationFunc:     resizingFunc,
+		EventRecorderFunc: eventRecorderFunc,
+		CompleteFunc:      util.OperationCompleteHook(volumePlugin.GetPluginName(), "volume_fs_resize"),
 	}, nil
 }
 

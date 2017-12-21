@@ -473,6 +473,16 @@ func (fopg *fakeOperationGenerator) GetVolumePluginMgr() *volume.VolumePluginMgr
 	return nil
 }
 
+func (fopg *fakeOperationGenerator) GenerateVolumeFileSystemResizeFunc(VolumeToResize, VolumeFsResizeMapUpdater) (volumetypes.GeneratedOperations, error) {
+	opFunc := func() (error, error) {
+		startOperationAndBlock(fopg.ch, fopg.quit)
+		return nil, nil
+	}
+	return volumetypes.GeneratedOperations{
+		OperationFunc: opFunc,
+	}, nil
+}
+
 func getTestPodWithSecret(podName, secretName string) *v1.Pod {
 	return &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{

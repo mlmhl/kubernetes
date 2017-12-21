@@ -253,6 +253,10 @@ func (plugin *cinderPlugin) RequiresFSResize() bool {
 	return true
 }
 
+func (plugin *cinderPlugin) SupportOnlineFsResize() bool {
+	return false
+}
+
 // Abstract interface to PD operations.
 type cdManager interface {
 	// Attaches the disk to the kubelet's host machine.

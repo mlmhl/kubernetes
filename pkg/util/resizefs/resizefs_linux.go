@@ -44,7 +44,7 @@ func NewResizeFs(mounter *mount.SafeFormatAndMount) *ResizeFs {
 }
 
 // Resize perform resize of file system
-func (resizefs *ResizeFs) Resize(devicePath string) (bool, error) {
+func (resizefs *ResizeFs) Resize(devicePath string, offline bool) (bool, error) {
 	format, err := resizefs.mounter.GetDiskFormat(devicePath)
 
 	if err != nil {
@@ -58,16 +58,18 @@ func (resizefs *ResizeFs) Resize(devicePath string) (bool, error) {
 		return false, nil
 	}
 
-	deviceOpened, err := resizefs.mounter.DeviceOpened(devicePath)
+	if offline {
+		deviceOpened, err := resizefs.mounter.DeviceOpened(devicePath)
 
-	if err != nil {
-		deviceOpenErr := fmt.Errorf("error verifying if device %s is open: %v", devicePath, err)
-		return false, deviceOpenErr
-	}
+		if err != nil {
+			deviceOpenErr := fmt.Errorf("error verifying if device %s is open: %v", devicePath, err)
+			return false, deviceOpenErr
+		}
 
-	if deviceOpened {
-		deviceAlreadyOpenErr := fmt.Errorf("the device %s is already in use", devicePath)
-		return false, deviceAlreadyOpenErr
+		if deviceOpened {
+			deviceAlreadyOpenErr := fmt.Errorf("the device %s is already in use", devicePath)
+			return false, deviceAlreadyOpenErr
+		}
 	}
 
 	switch format {

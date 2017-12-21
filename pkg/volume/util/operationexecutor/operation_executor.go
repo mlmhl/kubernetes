@@ -146,6 +146,8 @@ type OperationExecutor interface {
 	IsOperationPending(volumeName v1.UniqueVolumeName, podName volumetypes.UniquePodName) bool
 	// Expand Volume will grow size available to PVC
 	ExpandVolume(*expandcache.PVCWithResizeRequest, expandcache.VolumeResizeMap) error
+
+	VolumeFileSystemResize(VolumeToResize, VolumeFsResizeMapUpdater) error
 }
 
 // NewOperationExecutor returns a new instance of OperationExecutor.
@@ -169,7 +171,10 @@ type ActualStateOfWorldMounterUpdater interface {
 	MarkVolumeAsUnmounted(podName volumetypes.UniquePodName, volumeName v1.UniqueVolumeName) error
 
 	// Marks the specified volume as having been globally mounted.
-	MarkDeviceAsMounted(volumeName v1.UniqueVolumeName) error
+	// For ceph rbd volume plugin, the Attach method does nothing
+	// Kubelet will perform the real attach operation, so we need
+	// to update the devicePath in the actual state of the world.
+	MarkDeviceAsMounted(volumeName v1.UniqueVolumeName, devicePath string) error
 
 	// Marks the specified volume as having its global mount unmounted.
 	MarkDeviceAsUnmounted(volumeName v1.UniqueVolumeName) error
@@ -218,6 +223,12 @@ type VolumeLogger interface {
 	// Creates a simple error that is user friendly and a detailed error that can be used in logs.
 	// The msg format follows the pattern "<prefixMsg> <volume details>: <err> ",
 	GenerateError(prefixMsg string, err error) (simpleErr, detailedErr error)
+}
+
+// VolumeFsResizeMapUpdater defines a set of operations updating the
+// volume file system resize map after successful file system resize.
+type VolumeFsResizeMapUpdater interface {
+	MarkAsFileSystemResized(pod *v1.Pod, volumeName string) error
 }
 
 // Generates an error string with the format ": <err>" if err exists
@@ -363,6 +374,58 @@ func (volume *VolumeToMount) GenerateErrorDetailed(prefixMsg string, err error) 
 
 // GenerateError returns simple and detailed errors for volumes to mount
 func (volume *VolumeToMount) GenerateError(prefixMsg string, err error) (simpleErr, detailedErr error) {
+	simpleMsg, detailedMsg := volume.GenerateMsg(prefixMsg, errSuffix(err))
+	return fmt.Errorf(simpleMsg), fmt.Errorf(detailedMsg)
+}
+
+type VolumeToResize struct {
+	// VolumeName is the unique identifier for the volume that should be
+	// mounted.
+	VolumeName v1.UniqueVolumeName
+
+	// PodName is the unique identifier for the pod that the volume should be
+	// mounted to after it is attached.
+	PodName volumetypes.UniquePodName
+
+	// VolumeSpec is a volume spec containing the specification for the volume
+	// that should be resized. Used to find expandable volume plugins.
+	VolumeSpec *volume.Spec
+
+	// Pod the volume mounted to. Used to reset the resizing annotation for this pod.
+	Pod *v1.Pod
+
+	// DevicePath contains the path on the node where the volume is attached.
+	// For non-attachable volumes this is empty.
+	DevicePath string
+}
+
+// GenerateMsgDetailed returns detailed msgs for volumes to mount
+func (volume *VolumeToResize) GenerateMsgDetailed(prefixMsg, suffixMsg string) (detailedMsg string) {
+	detailedStr := fmt.Sprintf("(UniqueName: %q) pod %q (UID: %q)", volume.VolumeName, volume.Pod.Name, volume.Pod.UID)
+	volumeSpecName := "nil"
+	if volume.VolumeSpec != nil {
+		volumeSpecName = volume.VolumeSpec.Name()
+	}
+	return generateVolumeMsgDetailed(prefixMsg, suffixMsg, volumeSpecName, detailedStr)
+}
+
+// GenerateMsg returns simple and detailed msgs for volumes to mount
+func (volume *VolumeToResize) GenerateMsg(prefixMsg, suffixMsg string) (simpleMsg, detailedMsg string) {
+	detailedStr := fmt.Sprintf("(UniqueName: %q) pod %q (UID: %q)", volume.VolumeName, volume.Pod.Name, volume.Pod.UID)
+	volumeSpecName := "nil"
+	if volume.VolumeSpec != nil {
+		volumeSpecName = volume.VolumeSpec.Name()
+	}
+	return generateVolumeMsg(prefixMsg, suffixMsg, volumeSpecName, detailedStr)
+}
+
+// GenerateErrorDetailed returns detailed errors for volumes to mount
+func (volume *VolumeToResize) GenerateErrorDetailed(prefixMsg string, err error) (detailedErr error) {
+	return fmt.Errorf(volume.GenerateMsgDetailed(prefixMsg, errSuffix(err)))
+}
+
+// GenerateError returns simple and detailed errors for volumes to mount
+func (volume *VolumeToResize) GenerateError(prefixMsg string, err error) (simpleErr, detailedErr error) {
 	simpleMsg, detailedMsg := volume.GenerateMsg(prefixMsg, errSuffix(err))
 	return fmt.Errorf(simpleMsg), fmt.Errorf(detailedMsg)
 }
@@ -831,6 +894,18 @@ func (oe *operationExecutor) VerifyControllerAttachedVolume(
 		volumeToMount.VolumeName, "" /* podName */, generatedOperations)
 }
 
+func (oe *operationExecutor) VolumeFileSystemResize(
+	volumeToResize VolumeToResize,
+	volumeFsResizeMapUpdater VolumeFsResizeMapUpdater) error {
+	generatedOperations, err := oe.operationGenerator.GenerateVolumeFileSystemResizeFunc(
+		volumeToResize, volumeFsResizeMapUpdater)
+	if err != nil {
+		return err
+	}
+	return oe.pendingOperations.Run(volumeToResize.VolumeName,
+		nestedpendingoperations.EmptyUniquePodName, generatedOperations)
+}
+
 // VolumeStateHandler defines a set of operations for handling mount/unmount/detach/reconstruct volume-related operations
 type VolumeStateHandler interface {
 	// Volume is attached, mount/map it
@@ -843,6 +918,8 @@ type VolumeStateHandler interface {
 	ReconstructVolumeHandler(plugin volume.VolumePlugin, mapperPlugin volume.BlockVolumePlugin, uid types.UID, podName volumetypes.UniquePodName, volumeSpecName string, mountPath string, pluginName string) (*volume.Spec, error)
 	// check mount path if volume still exists
 	CheckVolumeExistence(mountPath, volumeName string, mounter mount.Interface, uniqueVolumeName v1.UniqueVolumeName, podName volumetypes.UniquePodName, podUID types.UID, attachable volume.AttachableVolumePlugin) (bool, error)
+
+	FileSystemResizeHandler(VolumeToResize, VolumeFsResizeMapUpdater) error
 }
 
 // NewVolumeHandler return a new instance of volumeHandler depens on a volumeMode
@@ -952,6 +1029,14 @@ func (f FilesystemVolumeHandler) CheckVolumeExistence(mountPath, volumeName stri
 	return true, nil
 }
 
+func (f FilesystemVolumeHandler) FileSystemResizeHandler(
+	volumeToResize VolumeToResize,
+	volumeFsResizeMapUpdater VolumeFsResizeMapUpdater) error {
+	glog.V(12).Infof(volumeToResize.GenerateMsgDetailed("Starting operationExecutor.VolumeFsResize", ""))
+	err := f.oe.VolumeFileSystemResize(volumeToResize, volumeFsResizeMapUpdater)
+	return err
+}
+
 // MountVolumeHandler creates a map to device if a volume is attached
 // This method is handler for block volume
 func (b BlockVolumeHandler) MountVolumeHandler(waitForAttachTimeout time.Duration, volumeToMount VolumeToMount, actualStateOfWorld ActualStateOfWorldMounterUpdater, _ bool, _ string) error {
@@ -1023,6 +1108,12 @@ func (b BlockVolumeHandler) CheckVolumeExistence(mountPath, volumeName string, m
 			checkErr)
 	}
 	return islinkExist, nil
+}
+
+func (b BlockVolumeHandler) FileSystemResizeHandler(
+	volumeToResize VolumeToResize,
+	volumeFsResizeMapUpdater VolumeFsResizeMapUpdater) error {
+	return fmt.Errorf("block volume not support file system resize")
 }
 
 // TODO: this is a workaround for the unmount device issue caused by gci mounter.

@@ -198,3 +198,11 @@ func GetVolumeNameFromPluginMgr(
 func GetVolumeFsResizeAnnotation(pvcName string) string {
 	return fmt.Sprintf("%s%s", volumeFSResizingAnnotation, pvcName)
 }
+
+func IsVolumeFsResizeAnnotation(annotation string) bool {
+	return strings.HasPrefix(annotation, volumeFSResizingAnnotation)
+}
+
+func GetVolumeUniqueNameFromFsResizeAnnotation(annotation string) string {
+	return strings.Trim(annotation, volumeFSResizingAnnotation)
+}

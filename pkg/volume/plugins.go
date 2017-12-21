@@ -206,6 +206,7 @@ type ExpandableVolumePlugin interface {
 	VolumePlugin
 	ExpandVolumeDevice(spec *Spec, newSize resource.Quantity, oldSize resource.Quantity) (resource.Quantity, error)
 	RequiresFSResize() bool
+	SupportOnlineFsResize() bool
 }
 
 // BlockVolumePlugin is an extend interface of VolumePlugin and is used for block volumes support.

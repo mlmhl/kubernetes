@@ -202,6 +202,10 @@ func (plugin *rbdPlugin) RequiresFSResize() bool {
 	return true
 }
 
+func (plugin *rbdPlugin) SupportOnlineFsResize() bool {
+	return true
+}
+
 func (plugin *rbdPlugin) createMounterFromVolumeSpecAndPod(spec *volume.Spec, pod *v1.Pod) (*rbdMounter, error) {
 	var err error
 	mon, err := getVolumeSourceMonitors(spec)

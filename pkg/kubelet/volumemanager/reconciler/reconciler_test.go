@@ -84,7 +84,8 @@ func Test_Run_Positive_DoNothing(t *testing.T) {
 		oex,
 		&mount.FakeMounter{},
 		volumePluginMgr,
-		kubeletPodsDir)
+		kubeletPodsDir,
+		cache.NewVolumeFsResizeMap(kubeClient))
 
 	// Act
 	runReconciler(reconciler)
@@ -128,7 +129,8 @@ func Test_Run_Positive_VolumeAttachAndMount(t *testing.T) {
 		oex,
 		&mount.FakeMounter{},
 		volumePluginMgr,
-		kubeletPodsDir)
+		kubeletPodsDir,
+		cache.NewVolumeFsResizeMap(kubeClient))
 	pod := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "pod1",
@@ -206,7 +208,8 @@ func Test_Run_Positive_VolumeMountControllerAttachEnabled(t *testing.T) {
 		oex,
 		&mount.FakeMounter{},
 		volumePluginMgr,
-		kubeletPodsDir)
+		kubeletPodsDir,
+		cache.NewVolumeFsResizeMap(kubeClient))
 	pod := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "pod1",
@@ -285,7 +288,8 @@ func Test_Run_Positive_VolumeAttachMountUnmountDetach(t *testing.T) {
 		oex,
 		&mount.FakeMounter{},
 		volumePluginMgr,
-		kubeletPodsDir)
+		kubeletPodsDir,
+		cache.NewVolumeFsResizeMap(kubeClient))
 	pod := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "pod1",
@@ -375,7 +379,8 @@ func Test_Run_Positive_VolumeUnmountControllerAttachEnabled(t *testing.T) {
 		oex,
 		&mount.FakeMounter{},
 		volumePluginMgr,
-		kubeletPodsDir)
+		kubeletPodsDir,
+		cache.NewVolumeFsResizeMap(kubeClient))
 	pod := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "pod1",
@@ -465,7 +470,8 @@ func Test_Run_Positive_VolumeAttachAndMap(t *testing.T) {
 		oex,
 		&mount.FakeMounter{},
 		volumePluginMgr,
-		kubeletPodsDir)
+		kubeletPodsDir,
+		cache.NewVolumeFsResizeMap(kubeClient))
 	pod := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "pod1",
@@ -556,7 +562,8 @@ func Test_Run_Positive_BlockVolumeMapControllerAttachEnabled(t *testing.T) {
 		oex,
 		&mount.FakeMounter{},
 		volumePluginMgr,
-		kubeletPodsDir)
+		kubeletPodsDir,
+		cache.NewVolumeFsResizeMap(kubeClient))
 	pod := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "pod1",
@@ -648,7 +655,8 @@ func Test_Run_Positive_BlockVolumeAttachMapUnmapDetach(t *testing.T) {
 		oex,
 		&mount.FakeMounter{},
 		volumePluginMgr,
-		kubeletPodsDir)
+		kubeletPodsDir,
+		cache.NewVolumeFsResizeMap(kubeClient))
 	pod := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "pod1",
@@ -750,7 +758,8 @@ func Test_Run_Positive_VolumeUnmapControllerAttachEnabled(t *testing.T) {
 		oex,
 		&mount.FakeMounter{},
 		volumePluginMgr,
-		kubeletPodsDir)
+		kubeletPodsDir,
+		cache.NewVolumeFsResizeMap(kubeClient))
 	pod := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "pod1",
