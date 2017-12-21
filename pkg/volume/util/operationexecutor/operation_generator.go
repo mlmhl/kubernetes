@@ -40,6 +40,7 @@ import (
 	"k8s.io/kubernetes/pkg/volume/util"
 	volumetypes "k8s.io/kubernetes/pkg/volume/util/types"
 	"k8s.io/kubernetes/pkg/volume/util/volumehelper"
+	nodeutil "k8s.io/kubernetes/pkg/util/node"
 )
 
 var _ OperationGenerator = &operationGenerator{}
@@ -495,6 +496,13 @@ func (og *operationGenerator) GenerateMountVolumeFunc(
 
 			glog.Infof(volumeToMount.GenerateMsgDetailed("MountVolume.WaitForAttach succeeded", fmt.Sprintf("DevicePath %q", devicePath)))
 
+			// Update node status to reflect volume's device path.
+			updateNodeErr := og.updateNodeStatus(
+				volumeToMount.VolumeName, devicePath, volumeToMount.Pod.Spec.NodeName)
+				if updateNodeErr != nil {
+					return volumeToMount.GenerateError("MountVolume.UpdateNodeStatus failed", updateNodeErr)
+				}
+
 			// resizeFileSystem will resize the file system if user has requested a resize of
 			// underlying persistent volume and is allowed to do so.
 			resizeError := og.resizeFileSystem(volumeToMount, devicePath, volumePlugin.GetPluginName())
@@ -651,6 +659,36 @@ func (og *operationGenerator) resizeFileSystem(volumeToMount VolumeToMount, devi
 		}
 	}
 	return nil
+}
+
+func (og *operationGenerator) updateNodeStatus(volumeName v1.UniqueVolumeName, devicePath, nodeName string) error {
+	if len(volumeName) == 0 || len(devicePath) == 0 || len(nodeName) == 0 {
+		return nil
+	}
+	glog.V(5).Infof("Update node %s status: volume: %s, device path: %s", nodeName, volumeName, devicePath)
+
+	// Fetch current node object
+	node, fetchErr := og.kubeClient.CoreV1().Nodes().Get(nodeName, metav1.GetOptions{})
+	if fetchErr != nil {
+		return fetchErr
+	}
+	originNode := node.DeepCopy()
+
+	updated := false
+	for i := range node.Status.VolumesAttached {
+		attachedVolume := &node.Status.VolumesAttached[i]
+		if attachedVolume.Name == volumeName && attachedVolume.DevicePath != devicePath {
+			updated = true
+			attachedVolume.DevicePath = devicePath
+			break
+		}
+	}
+	if !updated {
+		return nil
+	}
+
+	_, updateErr := nodeutil.PatchNodeStatus(og.kubeClient.CoreV1(), types.NodeName(nodeName), originNode, node)
+	return updateErr
 }
 
 func (og *operationGenerator) GenerateUnmountVolumeFunc(
@@ -844,6 +882,13 @@ func (og *operationGenerator) GenerateMapVolumeFunc(
 			}
 
 			glog.Infof(volumeToMount.GenerateMsgDetailed("MapVolume.WaitForAttach succeeded", fmt.Sprintf("DevicePath %q", devicePath)))
+
+			// Update node status to reflect volume's device path.
+			updateNodeErr := og.updateNodeStatus(
+				volumeToMount.VolumeName, devicePath, volumeToMount.Pod.Spec.NodeName)
+			if updateNodeErr != nil {
+				return volumeToMount.GenerateError("MountVolume.UpdateNodeStatus failed", updateNodeErr)
+			}
 
 			// Update actual state of world to reflect volume is globally mounted
 			markDeviceMappedErr := actualStateOfWorld.MarkDeviceAsMounted(
