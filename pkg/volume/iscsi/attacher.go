@@ -39,6 +39,7 @@ type iscsiAttacher struct {
 
 var _ volume.Attacher = &iscsiAttacher{}
 
+// TODO: We should make iscsi implementing DeviceMountableVolumePlugin only.
 var _ volume.AttachableVolumePlugin = &iscsiPlugin{}
 
 func (plugin *iscsiPlugin) NewAttacher() (volume.Attacher, error) {
@@ -46,6 +47,11 @@ func (plugin *iscsiPlugin) NewAttacher() (volume.Attacher, error) {
 		host:    plugin.host,
 		manager: &ISCSIUtil{},
 	}, nil
+}
+
+// NewDeviceMounter initializes a DeviceMounter.
+func (plugin *iscsiPlugin) NewDeviceMounter() (volume.DeviceMounter, error) {
+	return plugin.NewAttacher()
 }
 
 func (plugin *iscsiPlugin) GetDeviceMountRefs(deviceMountPath string) ([]string, error) {
@@ -89,22 +95,27 @@ func (attacher *iscsiAttacher) GetDeviceMountPath(
 	return attacher.manager.MakeGlobalPDName(*mounter.iscsiDisk), nil
 }
 
-func (attacher *iscsiAttacher) MountDevice(spec *volume.Spec, devicePath string, deviceMountPath string) error {
+func (attacher *iscsiAttacher) MountDevice(spec *volume.Spec, devicePath string, _ *v1.Pod) (string, error) {
+	deviceMountPath, err := attacher.GetDeviceMountPath(spec)
+	if err != nil {
+		return deviceMountPath, err
+	}
+
 	mounter := attacher.host.GetMounter(iscsiPluginName)
 	notMnt, err := mounter.IsLikelyNotMountPoint(deviceMountPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			if err := os.MkdirAll(deviceMountPath, 0750); err != nil {
-				return err
+				return deviceMountPath, err
 			}
 			notMnt = true
 		} else {
-			return err
+			return deviceMountPath, err
 		}
 	}
 	readOnly, fsType, err := getISCSIVolumeInfo(spec)
 	if err != nil {
-		return err
+		return deviceMountPath, err
 	}
 
 	options := []string{}
@@ -117,10 +128,10 @@ func (attacher *iscsiAttacher) MountDevice(spec *volume.Spec, devicePath string,
 		err = diskMounter.FormatAndMount(devicePath, deviceMountPath, fsType, mountOptions)
 		if err != nil {
 			os.Remove(deviceMountPath)
-			return err
+			return deviceMountPath, err
 		}
 	}
-	return nil
+	return deviceMountPath, nil
 }
 
 type iscsiDetacher struct {
@@ -137,6 +148,11 @@ func (plugin *iscsiPlugin) NewDetacher() (volume.Detacher, error) {
 		mounter: plugin.host.GetMounter(iscsiPluginName),
 		manager: &ISCSIUtil{},
 	}, nil
+}
+
+// NewDeviceUmounter initializes a DeviceUmounter.
+func (plugin *iscsiPlugin) NewDeviceUmounter() (volume.DeviceUmounter, error) {
+	return plugin.NewDetacher()
 }
 
 func (detacher *iscsiDetacher) Detach(volumeName string, nodeName types.NodeName) error {

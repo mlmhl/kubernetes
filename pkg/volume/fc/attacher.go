@@ -41,6 +41,7 @@ type fcAttacher struct {
 
 var _ volume.Attacher = &fcAttacher{}
 
+// TODO: We should make fc implementing DeviceMountableVolumePlugin only.
 var _ volume.AttachableVolumePlugin = &fcPlugin{}
 
 func (plugin *fcPlugin) NewAttacher() (volume.Attacher, error) {
@@ -48,6 +49,10 @@ func (plugin *fcPlugin) NewAttacher() (volume.Attacher, error) {
 		host:    plugin.host,
 		manager: &FCUtil{},
 	}, nil
+}
+
+func (plugin *fcPlugin) NewDeviceMounter() (volume.DeviceMounter, error) {
+	return plugin.NewAttacher()
 }
 
 func (plugin *fcPlugin) GetDeviceMountRefs(deviceMountPath string) ([]string, error) {
@@ -88,23 +93,28 @@ func (attacher *fcAttacher) GetDeviceMountPath(
 	return attacher.manager.MakeGlobalPDName(*mounter.fcDisk), nil
 }
 
-func (attacher *fcAttacher) MountDevice(spec *volume.Spec, devicePath string, deviceMountPath string) error {
+func (attacher *fcAttacher) MountDevice(spec *volume.Spec, devicePath string, _ *v1.Pod) (string, error) {
+	deviceMountPath, err := attacher.GetDeviceMountPath(spec)
+	if err != nil {
+		return deviceMountPath, err
+	}
+
 	mounter := attacher.host.GetMounter(fcPluginName)
 	notMnt, err := mounter.IsLikelyNotMountPoint(deviceMountPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			if err := os.MkdirAll(deviceMountPath, 0750); err != nil {
-				return err
+				return deviceMountPath, err
 			}
 			notMnt = true
 		} else {
-			return err
+			return deviceMountPath, err
 		}
 	}
 
 	volumeSource, readOnly, err := getVolumeSource(spec)
 	if err != nil {
-		return err
+		return deviceMountPath, err
 	}
 
 	options := []string{}
@@ -117,10 +127,10 @@ func (attacher *fcAttacher) MountDevice(spec *volume.Spec, devicePath string, de
 		err = diskMounter.FormatAndMount(devicePath, deviceMountPath, volumeSource.FSType, mountOptions)
 		if err != nil {
 			os.Remove(deviceMountPath)
-			return err
+			return deviceMountPath, err
 		}
 	}
-	return nil
+	return deviceMountPath, nil
 }
 
 type fcDetacher struct {
@@ -135,6 +145,10 @@ func (plugin *fcPlugin) NewDetacher() (volume.Detacher, error) {
 		mounter: plugin.host.GetMounter(plugin.GetPluginName()),
 		manager: &FCUtil{},
 	}, nil
+}
+
+func (plugin *fcPlugin) NewDeviceUmounter() (volume.DeviceUmounter, error) {
+	return plugin.NewDetacher()
 }
 
 func (detacher *fcDetacher) Detach(volumeName string, nodeName types.NodeName) error {

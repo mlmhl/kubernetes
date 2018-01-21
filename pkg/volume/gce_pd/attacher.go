@@ -56,6 +56,11 @@ func (plugin *gcePersistentDiskPlugin) NewAttacher() (volume.Attacher, error) {
 	}, nil
 }
 
+// NewDeviceMounter initializes a DeviceMounter. For gce pd, this is an Attacher.
+func (plugin *gcePersistentDiskPlugin) NewDeviceMounter() (volume.DeviceMounter, error) {
+	return plugin.NewAttacher()
+}
+
 func (plugin *gcePersistentDiskPlugin) GetDeviceMountRefs(deviceMountPath string) ([]string, error) {
 	mounter := plugin.host.GetMounter(plugin.GetPluginName())
 	return mount.GetMountRefs(mounter, deviceMountPath)
@@ -184,24 +189,29 @@ func (attacher *gcePersistentDiskAttacher) GetDeviceMountPath(
 	return makeGlobalPDName(attacher.host, volumeSource.PDName), nil
 }
 
-func (attacher *gcePersistentDiskAttacher) MountDevice(spec *volume.Spec, devicePath string, deviceMountPath string) error {
+func (attacher *gcePersistentDiskAttacher) MountDevice(spec *volume.Spec, devicePath string, _ *v1.Pod) (string, error) {
+	deviceMountPath, err := attacher.GetDeviceMountPath(spec)
+	if err != nil {
+		return deviceMountPath, err
+	}
+
 	// Only mount the PD globally once.
 	mounter := attacher.host.GetMounter(gcePersistentDiskPluginName)
 	notMnt, err := mounter.IsLikelyNotMountPoint(deviceMountPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			if err := os.MkdirAll(deviceMountPath, 0750); err != nil {
-				return err
+				return deviceMountPath, err
 			}
 			notMnt = true
 		} else {
-			return err
+			return deviceMountPath, err
 		}
 	}
 
 	volumeSource, readOnly, err := getVolumeSource(spec)
 	if err != nil {
-		return err
+		return deviceMountPath, err
 	}
 
 	options := []string{}
@@ -214,11 +224,11 @@ func (attacher *gcePersistentDiskAttacher) MountDevice(spec *volume.Spec, device
 		err = diskMounter.FormatAndMount(devicePath, deviceMountPath, volumeSource.FSType, mountOptions)
 		if err != nil {
 			os.Remove(deviceMountPath)
-			return err
+			return deviceMountPath, err
 		}
 		glog.V(4).Infof("formatting spec %v devicePath %v deviceMountPath %v fs %v with options %+v", spec.Name(), devicePath, deviceMountPath, volumeSource.FSType, options)
 	}
-	return nil
+	return deviceMountPath, nil
 }
 
 type gcePersistentDiskDetacher struct {
@@ -238,6 +248,11 @@ func (plugin *gcePersistentDiskPlugin) NewDetacher() (volume.Detacher, error) {
 		host:     plugin.host,
 		gceDisks: gceCloud,
 	}, nil
+}
+
+// NewDeviceUmounter initializes a DeviceUmounter. For gce pd, this is an Detacher.
+func (plugin *gcePersistentDiskPlugin) NewDeviceUmounter() (volume.DeviceUmounter, error) {
+	return plugin.NewDetacher()
 }
 
 // Detach checks with the GCE cloud provider if the specified volume is already

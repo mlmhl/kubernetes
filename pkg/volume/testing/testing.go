@@ -348,6 +348,10 @@ func (plugin *FakeVolumePlugin) NewAttacher() (Attacher, error) {
 	return plugin.getFakeVolume(&plugin.Attachers), nil
 }
 
+func (plugin *FakeVolumePlugin) NewDeviceMounter() (DeviceMounter, error) {
+	return plugin.NewAttacher()
+}
+
 func (plugin *FakeVolumePlugin) GetAttachers() (Attachers []*FakeVolume) {
 	plugin.RLock()
 	defer plugin.RUnlock()
@@ -365,6 +369,10 @@ func (plugin *FakeVolumePlugin) NewDetacher() (Detacher, error) {
 	defer plugin.Unlock()
 	plugin.NewDetacherCallCount = plugin.NewDetacherCallCount + 1
 	return plugin.getFakeVolume(&plugin.Detachers), nil
+}
+
+func (plugin *FakeVolumePlugin) NewDeviceUmounter() (DeviceUmounter, error) {
+	return plugin.NewDetacher()
 }
 
 func (plugin *FakeVolumePlugin) GetDetachers() (Detachers []*FakeVolume) {
@@ -646,11 +654,11 @@ func (fv *FakeVolume) GetDeviceMountPath(spec *Spec) (string, error) {
 	return "", nil
 }
 
-func (fv *FakeVolume) MountDevice(spec *Spec, devicePath string, deviceMountPath string) error {
+func (fv *FakeVolume) MountDevice(spec *Spec, devicePath string, pod *v1.Pod) (string, error) {
 	fv.Lock()
 	defer fv.Unlock()
 	fv.MountDeviceCallCount++
-	return nil
+	return "", nil
 }
 
 func (fv *FakeVolume) GetMountDeviceCallCount() int {

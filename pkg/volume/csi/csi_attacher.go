@@ -190,9 +190,9 @@ func (c *csiAttacher) GetDeviceMountPath(spec *volume.Spec) (string, error) {
 	return "", nil
 }
 
-func (c *csiAttacher) MountDevice(spec *volume.Spec, devicePath string, deviceMountPath string) error {
+func (c *csiAttacher) MountDevice(spec *volume.Spec, devicePath string, _ *v1.Pod) (string, error) {
 	glog.V(4).Info(log("attacher.MountDevice is not implemented"))
-	return nil
+	return "", nil
 }
 
 var _ volume.Detacher = &csiAttacher{}
