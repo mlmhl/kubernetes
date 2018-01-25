@@ -24,7 +24,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -183,26 +182,11 @@ func doTestPlugin(t *testing.T, c *testcase) {
 		t.Errorf("Can't find the plugin by name")
 	}
 	fakeMounter := fakeVolumeHost.GetMounter(plug.GetPluginName()).(*mount.FakeMounter)
-	fakeNodeName := types.NodeName("localhost")
 	fdm := NewFakeDiskManager()
 
-	// attacher
-	attacher, err := plug.(*rbdPlugin).newAttacherInternal(fdm)
-	if err != nil {
-		t.Errorf("Failed to make a new Attacher: %v", err)
-	}
-	deviceAttachPath, err := attacher.Attach(c.spec, fakeNodeName)
-	if err != nil {
-		t.Fatal(err)
-	}
-	devicePath, err := attacher.WaitForAttach(c.spec, deviceAttachPath, c.pod, time.Second*10)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if devicePath != c.expectedDevicePath {
-		t.Errorf("Unexpected path, expected %q, not: %q", c.expectedDevicePath, devicePath)
-	}
-	deviceMountPath, err := attacher.MountDevice(c.spec, devicePath, c.pod)
+	// deviceMounter
+	deviceMounter, err := plug.(*rbdPlugin).newDeviceMounterInternal(fdm)
+	deviceMountPath, err := deviceMounter.MountDevice(c.spec, "", c.pod)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -216,7 +200,7 @@ func doTestPlugin(t *testing.T, c *testcase) {
 			t.Errorf("Attacher.MountDevice() failed: %v", err)
 		}
 	}
-	checkMounterLog(t, fakeMounter, 1, mount.FakeAction{Action: "mount", Target: c.expectedDeviceMountPath, Source: devicePath, FSType: "ext4"})
+	checkMounterLog(t, fakeMounter, 1, mount.FakeAction{Action: "mount", Target: c.expectedDeviceMountPath, Source: c.expectedDevicePath, FSType: "ext4"})
 
 	// mounter
 	mounter, err := plug.(*rbdPlugin).newMounterInternal(c.spec, c.pod.UID, fdm, "secrets")
@@ -241,7 +225,7 @@ func doTestPlugin(t *testing.T, c *testcase) {
 			t.Errorf("SetUp() failed: %v", err)
 		}
 	}
-	checkMounterLog(t, fakeMounter, 2, mount.FakeAction{Action: "mount", Target: c.expectedPodMountPath, Source: devicePath, FSType: ""})
+	checkMounterLog(t, fakeMounter, 2, mount.FakeAction{Action: "mount", Target: c.expectedPodMountPath, Source: c.expectedDevicePath, FSType: ""})
 
 	// unmounter
 	unmounter, err := plug.(*rbdPlugin).newUnmounterInternal(c.spec.Name(), c.pod.UID, fdm)
@@ -262,20 +246,16 @@ func doTestPlugin(t *testing.T, c *testcase) {
 	}
 	checkMounterLog(t, fakeMounter, 3, mount.FakeAction{Action: "unmount", Target: c.expectedPodMountPath, Source: "", FSType: ""})
 
-	// detacher
-	detacher, err := plug.(*rbdPlugin).newDetacherInternal(fdm)
+	// deviceMounter
+	deviceUmounter, err := plug.(*rbdPlugin).newDeviceUmounterInternal(fdm)
 	if err != nil {
 		t.Errorf("Failed to make a new Attacher: %v", err)
 	}
-	err = detacher.UnmountDevice(deviceMountPath)
+	err = deviceUmounter.UnmountDevice(deviceMountPath)
 	if err != nil {
 		t.Fatalf("Detacher.UnmountDevice failed to unmount %s", deviceMountPath)
 	}
 	checkMounterLog(t, fakeMounter, 4, mount.FakeAction{Action: "unmount", Target: c.expectedDeviceMountPath, Source: "", FSType: ""})
-	err = detacher.Detach(deviceMountPath, fakeNodeName)
-	if err != nil {
-		t.Fatalf("Detacher.Detach failed to detach %s from %s", deviceMountPath, fakeNodeName)
-	}
 }
 
 type testcase struct {
@@ -465,7 +445,7 @@ func TestGetDeviceMountPath(t *testing.T) {
 	fdm := NewFakeDiskManager()
 
 	// attacher
-	attacher, err := plug.(*rbdPlugin).newAttacherInternal(fdm)
+	attacher, err := plug.(*rbdPlugin).newDeviceMounterInternal(fdm)
 	if err != nil {
 		t.Errorf("Failed to make a new Attacher: %v", err)
 	}

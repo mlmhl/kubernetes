@@ -55,8 +55,7 @@ var _ volume.VolumePlugin = &rbdPlugin{}
 var _ volume.PersistentVolumePlugin = &rbdPlugin{}
 var _ volume.DeletableVolumePlugin = &rbdPlugin{}
 var _ volume.ProvisionableVolumePlugin = &rbdPlugin{}
-// TODO: We should make rbd implementing DeviceMountableVolumePlugin only.
-var _ volume.AttachableVolumePlugin = &rbdPlugin{}
+var _ volume.DeviceMountableVolumePlugin = &rbdPlugin{}
 var _ volume.ExpandableVolumePlugin = &rbdPlugin{}
 var _ volume.BlockVolumePlugin = &rbdPlugin{}
 
