@@ -58,7 +58,7 @@ type ActualStateOfWorld interface {
 	// volume, reset the pod's remountRequired value.
 	// If a volume with the name volumeName does not exist in the list of
 	// attached volumes, an error is returned.
-	AddPodToVolume(podName volumetypes.UniquePodName, podUID types.UID, volumeName v1.UniqueVolumeName, mounter volume.Mounter, blockVolumeMapper volume.BlockVolumeMapper, outerVolumeSpecName string, volumeGidValue string) error
+	AddPodToVolume(podName volumetypes.UniquePodName, podUID types.UID, volumeName v1.UniqueVolumeName, mounter volume.Mounter, blockVolumeMapper volume.BlockVolumeMapper, outerVolumeSpecName string, volumeGidValue string, volumeSpec *volume.Spec) error
 
 	// MarkRemountRequired marks each volume that is successfully attached and
 	// mounted for the specified pod as requiring remount (if the plugin for the
@@ -226,6 +226,7 @@ type attachedVolume struct {
 	// In particular, the Unmount method uses spec.Name() as the volumeSpecName
 	// in the mount path:
 	// /var/lib/kubelet/pods/{podUID}/volumes/{escapeQualifiedPluginName}/{volumeSpecName}/
+	// This field is only used to generate messages when umounting the device.
 	spec *volume.Spec
 
 	// pluginName is the Unescaped Qualified name of the volume plugin used to
@@ -284,6 +285,15 @@ type mountedPod struct {
 
 	// volumeGidValue contains the value of the GID annotation, if present.
 	volumeGidValue string
+
+	// spec is the volume spec containing the specification for this volume.
+	// Used to generate the volume plugin object, and passed to plugin methods.
+	// In particular, the Unmount method uses spec.Name() as the volumeSpecName
+	// in the mount path:
+	// /var/lib/kubelet/pods/{podUID}/volumes/{escapeQualifiedPluginName}/{volumeSpecName}/
+	// We put this field here to make sure according volume can be umounted correctly,
+	// see issue: https://github.com/kubernetes/kubernetes/issues/61248.
+	spec *volume.Spec
 }
 
 func (asw *actualStateOfWorld) MarkVolumeAsAttached(
@@ -303,7 +313,8 @@ func (asw *actualStateOfWorld) MarkVolumeAsMounted(
 	mounter volume.Mounter,
 	blockVolumeMapper volume.BlockVolumeMapper,
 	outerVolumeSpecName string,
-	volumeGidValue string) error {
+	volumeGidValue string,
+	volumeSpec *volume.Spec) error {
 	return asw.AddPodToVolume(
 		podName,
 		podUID,
@@ -311,7 +322,8 @@ func (asw *actualStateOfWorld) MarkVolumeAsMounted(
 		mounter,
 		blockVolumeMapper,
 		outerVolumeSpecName,
-		volumeGidValue)
+		volumeGidValue,
+		volumeSpec)
 }
 
 func (asw *actualStateOfWorld) AddVolumeToReportAsAttached(volumeName v1.UniqueVolumeName, nodeName types.NodeName) {
@@ -403,7 +415,8 @@ func (asw *actualStateOfWorld) AddPodToVolume(
 	mounter volume.Mounter,
 	blockVolumeMapper volume.BlockVolumeMapper,
 	outerVolumeSpecName string,
-	volumeGidValue string) error {
+	volumeGidValue string,
+	volumeSpec *volume.Spec) error {
 	asw.Lock()
 	defer asw.Unlock()
 
@@ -423,6 +436,7 @@ func (asw *actualStateOfWorld) AddPodToVolume(
 			blockVolumeMapper:   blockVolumeMapper,
 			outerVolumeSpecName: outerVolumeSpecName,
 			volumeGidValue:      volumeGidValue,
+			spec:                volumeSpec,
 		}
 	}
 
@@ -444,7 +458,7 @@ func (asw *actualStateOfWorld) MarkRemountRequired(
 			}
 
 			volumePlugin, err :=
-				asw.volumePluginMgr.FindPluginBySpec(volumeObj.spec)
+				asw.volumePluginMgr.FindPluginBySpec(podObj.spec)
 			if err != nil || volumePlugin == nil {
 				// Log and continue processing
 				glog.Errorf(
@@ -452,7 +466,7 @@ func (asw *actualStateOfWorld) MarkRemountRequired(
 					podObj.podName,
 					podObj.podUID,
 					volumeObj.volumeName,
-					volumeObj.spec.Name())
+					podObj.spec.Name())
 				continue
 			}
 
@@ -546,8 +560,8 @@ func (asw *actualStateOfWorld) VolumeExistsWithSpecName(podName volumetypes.Uniq
 	asw.RLock()
 	defer asw.RUnlock()
 	for _, volumeObj := range asw.attachedVolumes {
-		for name := range volumeObj.mountedPods {
-			if podName == name && volumeObj.spec.Name() == volumeSpecName {
+		for name, podObj := range volumeObj.mountedPods {
+			if podName == name && podObj.spec.Name() == volumeSpecName {
 				return true
 			}
 		}
@@ -713,13 +727,13 @@ func getMountedVolume(
 		MountedVolume: operationexecutor.MountedVolume{
 			PodName:             mountedPod.podName,
 			VolumeName:          attachedVolume.volumeName,
-			InnerVolumeSpecName: attachedVolume.spec.Name(),
+			InnerVolumeSpecName: mountedPod.spec.Name(),
 			OuterVolumeSpecName: mountedPod.outerVolumeSpecName,
 			PluginName:          attachedVolume.pluginName,
 			PodUID:              mountedPod.podUID,
 			Mounter:             mountedPod.mounter,
 			BlockVolumeMapper:   mountedPod.blockVolumeMapper,
 			VolumeGidValue:      mountedPod.volumeGidValue,
-			VolumeSpec:          attachedVolume.spec,
+			VolumeSpec:          mountedPod.spec,
 			DeviceMountPath:     attachedVolume.deviceMountPath}}
 }
